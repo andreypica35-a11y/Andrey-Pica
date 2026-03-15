@@ -1,0 +1,8 @@
+{
+  "name": "Raketero",
+  "description": "A platform for local side hustles, short-term gigs, and quick jobs connecting workers and employers.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}

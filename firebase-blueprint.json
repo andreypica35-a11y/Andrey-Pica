@@ -1,0 +1,116 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["worker", "employer", "admin"] },
+        "isVerified": { "type": "boolean" },
+        "bio": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "address": { "type": "string" },
+        "skills": { "type": "array", "items": { "type": "string" } },
+        "experience": { "type": "string" },
+        "gcashNumber": { "type": "string" },
+        "idType": { "type": "string" },
+        "idNumber": { "type": "string" },
+        "idImageURL": { "type": "string" },
+        "rating": { "type": "number" },
+        "reviewCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Gig": {
+      "title": "Gig",
+      "description": "Short-term task or job posting",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "employerId": { "type": "string" },
+        "employerName": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "payment": { "type": "number" },
+        "location": { "type": "string" },
+        "duration": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "in-progress", "review", "completed", "cancelled"] },
+        "workerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["employerId", "title", "payment", "status"]
+    },
+    "Application": {
+      "title": "Application",
+      "description": "Worker application for a gig",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "gigId": { "type": "string" },
+        "workerId": { "type": "string" },
+        "workerName": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["gigId", "workerId", "status"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Payment transaction record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "gigId": { "type": "string" },
+        "employerId": { "type": "string" },
+        "workerId": { "type": "string" },
+        "amount": { "type": "number" },
+        "serviceFee": { "type": "number" },
+        "workerAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "completed", "failed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["gigId", "employerId", "workerId", "amount"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Chat message between users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "chatId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["chatId", "senderId", "text"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/gigs/{gigId}": {
+      "schema": "Gig",
+      "description": "Gig postings"
+    },
+    "/gigs/{gigId}/applications/{applicationId}": {
+      "schema": "Application",
+      "description": "Applications for a specific gig"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Payment logs"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Chat messages"
+    }
+  }
+}
