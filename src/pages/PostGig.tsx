@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../firebase";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { DashboardLayout } from "../components/Layout";
 import { Card, Button, Input } from "../components/UI";
@@ -33,7 +33,7 @@ export const PostGig = () => {
       await addDoc(collection(db, "gigs"), gigData);
       navigate("/dashboard");
     } catch (error) {
-      console.error("Error posting gig:", error);
+      handleFirestoreError(error, OperationType.CREATE, "gigs");
     } finally {
       setLoading(false);
     }

@@ -6,6 +6,7 @@ import { UserProfile, Gig, Transaction } from "../types";
 import { DashboardLayout } from "../components/Layout";
 import { Card, Button, Badge } from "../components/UI";
 import { Shield, User, Briefcase, DollarSign, Trash2, CheckCircle, XCircle } from "lucide-react";
+import { motion } from "motion/react";
 
 export const AdminPanel = () => {
   const { profile } = useAuth();
@@ -13,6 +14,7 @@ export const AdminPanel = () => {
   const [gigs, setGigs] = useState<Gig[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [activeTab, setActiveTab] = useState<'users' | 'gigs' | 'transactions'>('users');
+  const [gigToDelete, setGigToDelete] = useState<string | null>(null);
 
   useEffect(() => {
     if (profile?.role !== "admin") return;
@@ -34,9 +36,13 @@ export const AdminPanel = () => {
     await updateDoc(doc(db, "users", uid), { isVerified: status });
   };
 
-  const handleDeleteGig = async (id: string) => {
-    if (confirm("Are you sure you want to delete this gig?")) {
-      await deleteDoc(doc(db, "gigs", id));
+  const handleDeleteGig = async () => {
+    if (!gigToDelete) return;
+    try {
+      await deleteDoc(doc(db, "gigs", gigToDelete));
+      setGigToDelete(null);
+    } catch (error) {
+      console.error("Error deleting gig:", error);
     }
   };
 
@@ -92,7 +98,7 @@ export const AdminPanel = () => {
               </div>
               <div className="flex items-center gap-4">
                 <Badge>{gig.status}</Badge>
-                <button onClick={() => handleDeleteGig(gig.id)} className="text-red-500 hover:text-red-700">
+                <button onClick={() => setGigToDelete(gig.id)} className="text-red-500 hover:text-red-700">
                   <Trash2 className="w-5 h-5" />
                 </button>
               </div>
@@ -112,6 +118,39 @@ export const AdminPanel = () => {
               <Badge variant="success">{tx.status}</Badge>
             </Card>
           ))}
+        </div>
+      )}
+
+      {gigToDelete && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl p-8"
+          >
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center text-red-600 mx-auto mb-6">
+              <Trash2 className="w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-bold text-center mb-2">Delete Gig?</h2>
+            <p className="text-zinc-600 text-center mb-8">
+              Are you sure you want to delete this gig? This action cannot be undone.
+            </p>
+            <div className="flex flex-col gap-3">
+              <Button 
+                onClick={handleDeleteGig}
+                className="w-full bg-red-600 hover:bg-red-700"
+              >
+                Yes, Delete Gig
+              </Button>
+              <Button 
+                variant="ghost" 
+                onClick={() => setGigToDelete(null)}
+                className="w-full"
+              >
+                Cancel
+              </Button>
+            </div>
+          </motion.div>
         </div>
       )}
     </DashboardLayout>

@@ -2,11 +2,14 @@ import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { DashboardLayout } from "../components/Layout";
 import { Card, Button, Input } from "../components/UI";
-import { User, Shield, CheckCircle, Wallet, Star } from "lucide-react";
+import { User, Shield, CheckCircle, Wallet, Star, Bell } from "lucide-react";
+import { motion } from "motion/react";
 
 export const Profile = () => {
   const { profile, updateProfile } = useAuth();
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [formData, setFormData] = useState({
     displayName: profile?.displayName || "",
     bio: profile?.bio || "",
@@ -17,21 +20,48 @@ export const Profile = () => {
     paymentNumber: profile?.gcashNumber || "",
     idType: profile?.idType || "",
     idNumber: profile?.idNumber || "",
+    notificationPreferences: profile?.notificationPreferences || {
+      newApplications: true,
+      messages: true,
+      gigStatusUpdates: true,
+      marketing: false
+    }
   });
 
   const handleSave = async () => {
-    await updateProfile({
-      displayName: formData.displayName,
-      bio: formData.bio,
-      phoneNumber: formData.phoneNumber,
-      address: formData.address,
-      skills: formData.skills.split(",").map(s => s.trim()).filter(s => s !== ""),
-      experience: formData.experience,
-      gcashNumber: formData.paymentNumber,
-      idType: formData.idType,
-      idNumber: formData.idNumber
+    setSaving(true);
+    try {
+      await updateProfile({
+        displayName: formData.displayName,
+        bio: formData.bio,
+        phoneNumber: formData.phoneNumber,
+        address: formData.address,
+        skills: formData.skills.split(",").map(s => s.trim()).filter(s => s !== ""),
+        experience: formData.experience,
+        gcashNumber: formData.paymentNumber,
+        idType: formData.idType,
+        idNumber: formData.idNumber,
+        notificationPreferences: formData.notificationPreferences
+      });
+      setFeedback({ type: 'success', message: 'Profile updated successfully!' });
+      setEditing(false);
+    } catch (error) {
+      setFeedback({ type: 'error', message: 'Failed to update profile.' });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setFeedback(null), 3000);
+    }
+  };
+
+  const togglePreference = (key: keyof typeof formData.notificationPreferences) => {
+    if (!editing) return;
+    setFormData({
+      ...formData,
+      notificationPreferences: {
+        ...formData.notificationPreferences,
+        [key]: !formData.notificationPreferences[key]
+      }
     });
-    setEditing(false);
   };
 
   return (
@@ -39,10 +69,26 @@ export const Profile = () => {
       <div className="max-w-3xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold">Your Profile</h1>
-          <Button variant={editing ? "primary" : "outline"} onClick={() => editing ? handleSave() : setEditing(true)}>
-            {editing ? "Save Changes" : "Edit Profile"}
+          <Button 
+            variant={editing ? "primary" : "outline"} 
+            onClick={() => editing ? handleSave() : setEditing(true)}
+            disabled={saving}
+          >
+            {saving ? "Saving..." : editing ? "Save Changes" : "Edit Profile"}
           </Button>
         </div>
+
+        {feedback && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`mb-6 p-4 rounded-xl text-center font-medium ${
+              feedback.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-700 border border-red-100'
+            }`}
+          >
+            {feedback.message}
+          </motion.div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <Card className="p-6 text-center">
@@ -189,6 +235,45 @@ export const Profile = () => {
                     </div>
                   </>
                 )}
+
+                <div className="pt-6 border-t border-zinc-100">
+                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                    <Bell className="w-5 h-5 text-emerald-600" />
+                    Notification Preferences
+                  </h3>
+                  <div className="space-y-4">
+                    {[
+                      { key: 'newApplications', label: 'New Gig Applications', desc: 'Get notified when someone applies to your gig.' },
+                      { key: 'messages', label: 'Messages', desc: 'Get notified when you receive a new message.' },
+                      { key: 'gigStatusUpdates', label: 'Gig Status Updates', desc: 'Get notified when your gig status changes.' },
+                      { key: 'marketing', label: 'Marketing & Promotions', desc: 'Receive updates about new features and offers.' },
+                    ].map((pref) => (
+                      <div key={pref.key} className="flex items-center justify-between py-2">
+                        <div>
+                          <p className="font-medium text-zinc-900">{pref.label}</p>
+                          <p className="text-sm text-zinc-500">{pref.desc}</p>
+                        </div>
+                        <button
+                          onClick={() => togglePreference(pref.key as any)}
+                          disabled={!editing}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                            formData.notificationPreferences[pref.key as keyof typeof formData.notificationPreferences]
+                              ? 'bg-emerald-600'
+                              : 'bg-zinc-200'
+                          } ${!editing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              formData.notificationPreferences[pref.key as keyof typeof formData.notificationPreferences]
+                                ? 'translate-x-6'
+                                : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </Card>
           </div>

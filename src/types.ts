@@ -1,5 +1,12 @@
 export type UserRole = "worker" | "employer" | "admin";
 
+export interface NotificationPreferences {
+  newApplications: boolean;
+  messages: boolean;
+  gigStatusUpdates: boolean;
+  marketing: boolean;
+}
+
 export interface UserProfile {
   uid: string;
   email: string;
@@ -18,6 +25,7 @@ export interface UserProfile {
   idImageURL?: string;
   rating?: number;
   reviewCount?: number;
+  notificationPreferences?: NotificationPreferences;
   createdAt: any;
 }
 
@@ -34,6 +42,7 @@ export interface Gig {
   status: "open" | "in-progress" | "review" | "completed" | "cancelled";
   workerId?: string;
   createdAt: any;
+  completedAt?: any;
 }
 
 export interface Application {
@@ -64,4 +73,12 @@ export interface Message {
   senderId: string;
   text: string;
   createdAt: any;
+}
+
+export interface Chat {
+  id: string;
+  participants: string[];
+  participantNames: { [key: string]: string };
+  lastMessage?: string;
+  updatedAt: any;
 }

@@ -21,7 +21,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
       if (user) {
         try {
           const docRef = doc(db, "users", user.uid);
@@ -48,18 +47,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               isVerified: false,
               createdAt: serverTimestamp(),
               rating: 5,
-              reviewCount: 0
+              reviewCount: 0,
+              notificationPreferences: {
+                newApplications: true,
+                messages: true,
+                gigStatusUpdates: true,
+                marketing: false
+              }
             };
             await setDoc(docRef, newProfile);
             setProfile(newProfile);
           }
         } catch (error) {
           console.error("Error fetching/creating profile:", error);
+        } finally {
+          setUser(user);
+          setLoading(false);
         }
       } else {
+        setUser(null);
         setProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
     return unsubscribe;
   }, []);

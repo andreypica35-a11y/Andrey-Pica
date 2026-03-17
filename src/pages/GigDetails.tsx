@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, getDoc, collection, addDoc, query, where, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
+import { doc, getDoc, collection, addDoc, query, where, onSnapshot, serverTimestamp, updateDoc, setDoc } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { Gig, Application, UserProfile } from "../types";
 import { DashboardLayout } from "../components/Layout";
-import { Card, Button, Badge } from "../components/UI";
+import { Card, Button, Badge, cn } from "../components/UI";
 import { motion } from "motion/react";
 import { MapPin, Clock, DollarSign, User, Shield, CheckCircle, AlertCircle, MessageSquare, X, Star } from "lucide-react";
 import { format } from "date-fns";
@@ -98,6 +98,9 @@ export const GigDetails = () => {
   const [paymentMethod, setPaymentMethod] = useState("gcash");
   const [paying, setPaying] = useState(false);
   const [selectedWorker, setSelectedWorker] = useState<UserProfile | null>(null);
+  const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
   const fetchWorkerProfile = async (workerId: string) => {
     try {
@@ -201,7 +204,7 @@ export const GigDetails = () => {
     if (!id || !gig) return;
     try {
       await updateDoc(doc(db, "gigs", id), { status: "review" });
-      alert("Gig marked as done. Waiting for employer confirmation.");
+      setFeedback({ type: 'success', message: "Gig marked as done. Waiting for employer confirmation." });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `gigs/${id}`);
     }
@@ -234,11 +237,12 @@ export const GigDetails = () => {
           ...result,
           createdAt: serverTimestamp()
         });
-        alert(`Gig confirmed completed! Payment via ${paymentMethod.toUpperCase()} released.`);
-        navigate("/dashboard");
+        setFeedback({ type: 'success', message: `Gig confirmed completed! Payment via ${paymentMethod.toUpperCase()} released.` });
+        setTimeout(() => navigate("/dashboard"), 2000);
       }
     } catch (error) {
       console.error("Payment error:", error);
+      setFeedback({ type: 'error', message: "Payment failed. Please try again." });
     } finally {
       setPaying(false);
     }
@@ -246,15 +250,32 @@ export const GigDetails = () => {
 
   const handleCancel = async () => {
     if (!id || !gig) return;
-    if (window.confirm("Are you sure you want to cancel this gig? This action cannot be undone.")) {
-      try {
-        await updateDoc(doc(db, "gigs", id), { status: "cancelled" });
-        alert("Gig has been cancelled.");
-        navigate("/dashboard");
-      } catch (error) {
-        handleFirestoreError(error, OperationType.UPDATE, `gigs/${id}`);
-      }
+    try {
+      await updateDoc(doc(db, "gigs", id), { status: "cancelled" });
+      setFeedback({ type: 'success', message: "Gig has been cancelled." });
+      setTimeout(() => navigate("/dashboard"), 2000);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `gigs/${id}`);
     }
+  };
+
+  const handleStartChat = async (otherUser: UserProfile) => {
+    if (!profile) return;
+    const chatId = [profile.uid, otherUser.uid].sort().join("_");
+    const chatRef = doc(db, "chats", chatId);
+    const chatSnap = await getDoc(chatRef);
+
+    if (!chatSnap.exists()) {
+      await setDoc(chatRef, {
+        participants: [profile.uid, otherUser.uid],
+        participantNames: {
+          [profile.uid]: profile.displayName,
+          [otherUser.uid]: otherUser.displayName
+        },
+        updatedAt: serverTimestamp()
+      });
+    }
+    navigate("/messages");
   };
 
   if (loading) return <DashboardLayout><div className="animate-pulse space-y-4"><div className="h-12 bg-zinc-200 rounded-xl w-1/2" /><div className="h-64 bg-zinc-200 rounded-2xl" /></div></DashboardLayout>;
@@ -302,12 +323,25 @@ export const GigDetails = () => {
                         </div>
                         <div>
                           <p className="font-bold">{app.workerName}</p>
-                          <button 
-                            onClick={() => fetchWorkerProfile(app.workerId)}
-                            className="text-xs text-emerald-600 font-semibold hover:underline"
-                          >
-                            View Profile
-                          </button>
+                          <div className="flex gap-3 mt-1">
+                            <button 
+                              onClick={() => fetchWorkerProfile(app.workerId)}
+                              className="text-xs text-emerald-600 font-semibold hover:underline"
+                            >
+                              View Profile
+                            </button>
+                            <button 
+                              onClick={async () => {
+                                const workerDoc = await getDoc(doc(db, "users", app.workerId));
+                                if (workerDoc.exists()) {
+                                  handleStartChat(workerDoc.data() as UserProfile);
+                                }
+                              }}
+                              className="text-xs text-zinc-500 font-semibold hover:underline flex items-center gap-1"
+                            >
+                              <MessageSquare className="w-3 h-3" /> Message
+                            </button>
+                          </div>
                         </div>
                       </div>
                       <div className="flex gap-2">
@@ -329,6 +363,42 @@ export const GigDetails = () => {
         </div>
 
         <div className="space-y-8">
+          {profile?.role === "employer" && gig.employerId === profile.uid && gig.workerId && (
+            <Card className="p-6">
+              <h3 className="font-bold mb-4">Assigned Worker</h3>
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 bg-zinc-100 rounded-full flex items-center justify-center">
+                  <User className="w-6 h-6 text-zinc-400" />
+                </div>
+                <div>
+                  <p className="font-bold">Worker Assigned</p>
+                  <p className="text-xs text-zinc-500">Currently working on this gig</p>
+                </div>
+              </div>
+              <Button 
+                variant="outline" 
+                className="w-full mb-4"
+                onClick={() => gig.workerId && fetchWorkerProfile(gig.workerId)}
+              >
+                View Profile
+              </Button>
+              <Button 
+                variant="ghost" 
+                className="w-full gap-2"
+                onClick={async () => {
+                  if (gig.workerId) {
+                    const workerDoc = await getDoc(doc(db, "users", gig.workerId));
+                    if (workerDoc.exists()) {
+                      handleStartChat(workerDoc.data() as UserProfile);
+                    }
+                  }
+                }}
+              >
+                <MessageSquare className="w-4 h-4" /> Message Worker
+              </Button>
+            </Card>
+          )}
+
           <Card className="p-6">
             <h3 className="font-bold mb-4">Employer</h3>
             <div className="flex items-center gap-4 mb-6">
@@ -342,7 +412,13 @@ export const GigDetails = () => {
               </div>
             </div>
             <Button variant="outline" className="w-full mb-4">View Profile</Button>
-            <Button variant="ghost" className="w-full gap-2"><MessageSquare className="w-4 h-4" /> Message Employer</Button>
+            <Button 
+              variant="ghost" 
+              className="w-full gap-2"
+              onClick={() => employer && handleStartChat(employer)}
+            >
+              <MessageSquare className="w-4 h-4" /> Message Employer
+            </Button>
           </Card>
 
           {profile?.role === "worker" && gig.status === "open" && (
@@ -389,7 +465,7 @@ export const GigDetails = () => {
               <p className="text-sm text-red-700 mb-4">Need to stop this gig? You can cancel it before it's completed.</p>
               <Button 
                 variant="outline" 
-                onClick={handleCancel}
+                onClick={() => setShowCancelConfirm(true)}
                 className="w-full border-red-200 text-red-600 hover:bg-red-100 hover:text-red-700"
               >
                 Cancel Gig
@@ -455,7 +531,7 @@ export const GigDetails = () => {
               </div>
 
               <Button 
-                onClick={handlePayment} 
+                onClick={() => setShowPaymentConfirm(true)} 
                 disabled={paying}
                 className="w-full"
               >
@@ -465,6 +541,100 @@ export const GigDetails = () => {
           )}
         </div>
       </div>
+
+      {feedback && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={cn(
+              "px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3",
+              feedback.type === 'success' ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+            )}
+          >
+            {feedback.type === 'success' ? <CheckCircle className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+            <p className="font-bold text-sm">{feedback.message}</p>
+            <button onClick={() => setFeedback(null)} className="p-1 hover:bg-white/20 rounded-full">
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        </div>
+      )}
+
+      {showCancelConfirm && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl p-8"
+          >
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center text-red-600 mx-auto mb-6">
+              <AlertCircle className="w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-bold text-center mb-2">Cancel Gig?</h2>
+            <p className="text-zinc-600 text-center mb-8">
+              Are you sure you want to cancel this gig? This action cannot be undone and will notify any applicants or workers.
+            </p>
+            <div className="flex flex-col gap-3">
+              <Button 
+                onClick={() => {
+                  setShowCancelConfirm(false);
+                  handleCancel();
+                }}
+                className="w-full bg-red-600 hover:bg-red-700"
+              >
+                Yes, Cancel Gig
+              </Button>
+              <Button 
+                variant="ghost" 
+                onClick={() => setShowCancelConfirm(false)}
+                className="w-full"
+              >
+                Go Back
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {showPaymentConfirm && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl p-8"
+          >
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 mx-auto mb-6">
+              <AlertCircle className="w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-bold text-center mb-2">Confirm Payment?</h2>
+            <p className="text-zinc-600 text-center mb-8">
+              You are about to release <span className="font-bold text-zinc-900">₱{gig.payment}</span> to the worker via <span className="font-bold text-zinc-900 uppercase">{paymentMethod}</span>. This action cannot be reversed.
+            </p>
+            <div className="flex flex-col gap-3">
+              <Button 
+                onClick={() => {
+                  setShowPaymentConfirm(false);
+                  handlePayment();
+                }}
+                className="w-full"
+                disabled={paying}
+              >
+                {paying ? "Processing..." : "Yes, Release Payment"}
+              </Button>
+              <Button 
+                variant="ghost" 
+                onClick={() => setShowPaymentConfirm(false)}
+                className="w-full"
+                disabled={paying}
+              >
+                Cancel
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {selectedWorker && (
         <WorkerProfileModal 
           worker={selectedWorker} 
