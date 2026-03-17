@@ -1,7 +1,96 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper functions
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId} (Firebase Auth UID)
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - displayName: string
+    //   - photoURL: string
+    //   - role: string (enum: ["worker", "employer", "admin"])
+    //   - isVerified: boolean
+    //   - bio: string
+    //   - phoneNumber: string
+    //   - address: string
+    //   - skills: list of strings
+    //   - experience: string
+    //   - gcashNumber: string
+    //   - idType: string
+    //   - idNumber: string
+    //   - idImageURL: string
+    //   - rating: number
+    //   - reviewCount: number
+    //   - notificationPreferences: map
+    //   - createdAt: timestamp
+    //
+    // Collection: gigs
+    // Document ID: {gigId}
+    // Fields:
+    //   - id: string
+    //   - employerId: string (required)
+    //   - employerName: string
+    //   - title: string (required)
+    //   - description: string
+    //   - category: string
+    //   - payment: number (required)
+    //   - location: string
+    //   - duration: string
+    //   - status: string (enum: ["open", "in-progress", "review", "completed", "cancelled"])
+    //   - workerId: string
+    //   - createdAt: timestamp
+    //
+    // Collection: gigs/{gigId}/applications
+    // Document ID: {applicationId}
+    // Fields:
+    //   - id: string
+    //   - gigId: string
+    //   - workerId: string
+    //   - workerName: string
+    //   - status: string (enum: ["pending", "accepted", "rejected"])
+    //   - createdAt: timestamp
+    //
+    // Collection: transactions
+    // Document ID: {transactionId}
+    // Fields:
+    //   - id: string
+    //   - gigId: string
+    //   - employerId: string
+    //   - workerId: string
+    //   - amount: number
+    //   - serviceFee: number
+    //   - workerAmount: number
+    //   - status: string (enum: ["pending", "completed", "failed"])
+    //   - createdAt: timestamp
+    //
+    // Collection: chats
+    // Document ID: {chatId}
+    // Fields:
+    //   - id: string
+    //   - participants: list of strings
+    //   - participantNames: map
+    //   - lastMessage: string
+    //   - updatedAt: timestamp
+    //
+    // Collection: chats/{chatId}/messages
+    // Document ID: {messageId}
+    // Fields:
+    //   - id: string
+    //   - chatId: string
+    //   - senderId: string
+    //   - text: string
+    //   - createdAt: timestamp
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -11,34 +100,123 @@ service cloud.firestore {
     }
     
     function isAdmin() {
-      return isAuthenticated() && 
-        (
-          request.auth.token.email == "andreypica35@gmail.com" ||
-          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
-        );
+      return isAuthenticated() && (
+        (request.auth.token.email == "andreypica35@gmail.com" && request.auth.token.email_verified == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
     }
 
     function hasOnlyAllowedFields(fields) {
       return request.resource.data.keys().hasOnly(fields);
     }
 
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isRecent(time) {
+      return time > request.time - duration.value(5, 'm') && time <= request.time;
+    }
+
+    function validString(field, maxLen) {
+      return request.resource.data[field] is string && request.resource.data[field].size() <= maxLen;
+    }
+
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'email', 'role', 'createdAt']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.email is string && isValidEmail(data.email) &&
+             data.role in ['worker', 'employer', 'admin'] &&
+             data.createdAt is timestamp &&
+             (data.displayName == null || validString('displayName', 100)) &&
+             (data.bio == null || validString('bio', 1000)) &&
+             (data.phoneNumber == null || validString('phoneNumber', 20)) &&
+             (data.address == null || validString('address', 200)) &&
+             (data.skills == null || data.skills is list) &&
+             (data.rating == null || data.rating is number) &&
+             (data.reviewCount == null || data.reviewCount is number);
+    }
+
+    function isValidGig(data) {
+      return hasRequiredFields(['employerId', 'title', 'payment', 'status', 'createdAt']) &&
+             data.employerId is string &&
+             validString('title', 200) &&
+             data.payment is number && data.payment >= 0 &&
+             data.status in ['open', 'in-progress', 'review', 'completed', 'cancelled'] &&
+             data.createdAt is timestamp &&
+             (data.description == null || validString('description', 2000)) &&
+             (data.location == null || validString('location', 200));
+    }
+
+    function isValidApplication(data) {
+      return hasRequiredFields(['gigId', 'workerId', 'status']) &&
+             data.gigId is string &&
+             data.workerId is string &&
+             data.status in ['pending', 'accepted', 'rejected'];
+    }
+
+    function isValidMessage(data) {
+      return hasRequiredFields(['chatId', 'senderId', 'text', 'createdAt']) &&
+             data.chatId is string &&
+             data.senderId is string &&
+             validString('text', 5000) &&
+             data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
     // User profiles
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId) || isAdmin();
+      // PII Protection: Only owner or admin can read full profile
+      // If public profiles are needed, split into public/private collections
+      allow read: if isOwner(userId) || isAdmin();
+      
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
+                      (request.resource.data.role != 'admin' || isAdmin());
+      
+      allow update: if (isOwner(userId) || isAdmin()) && isValidUser(request.resource.data) &&
+                      uidNotModified() &&
+                      (request.resource.data.role == resource.data.role || isAdmin());
     }
 
     // Gigs
     match /gigs/{gigId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.employerId == request.auth.uid;
+      
+      allow create: if isAuthenticated() && request.resource.data.employerId == request.auth.uid && 
+                      isValidGig(request.resource.data);
+      
       allow update: if isAuthenticated() && (
-        resource.data.employerId == request.auth.uid || 
+        (resource.data.employerId == request.auth.uid && isValidGig(request.resource.data)) || 
         isAdmin() || 
-        (resource.data.workerId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
-        (resource.data.status == 'open' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['workerId', 'status']))
+        // Worker can mark as done (review)
+        (resource.data.workerId == request.auth.uid && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+         request.resource.data.status == 'review') ||
+        // System/Employer assigns worker
+        (resource.data.status == 'open' && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['workerId', 'status']) &&
+         request.resource.data.status == 'in-progress')
       );
+      
       allow delete: if isAdmin();
 
       match /applications/{applicationId} {
@@ -47,10 +225,12 @@ service cloud.firestore {
           get(/databases/$(database)/documents/gigs/$(gigId)).data.employerId == request.auth.uid ||
           isAdmin()
         );
-        allow create: if isAuthenticated() && request.resource.data.workerId == request.auth.uid;
+        allow create: if isAuthenticated() && request.resource.data.workerId == request.auth.uid && 
+                        isValidApplication(request.resource.data);
         allow update: if isAuthenticated() && (
-          resource.data.workerId == request.auth.uid || 
-          get(/databases/$(database)/documents/gigs/$(gigId)).data.employerId == request.auth.uid ||
+          (resource.data.workerId == request.auth.uid && isValidApplication(request.resource.data)) || 
+          (get(/databases/$(database)/documents/gigs/$(gigId)).data.employerId == request.auth.uid && 
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
           isAdmin()
         );
       }
@@ -59,7 +239,7 @@ service cloud.firestore {
     // Transactions
     match /transactions/{transactionId} {
       allow read: if isAuthenticated() && (resource.data.employerId == request.auth.uid || resource.data.workerId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated();
+      allow create: if isAuthenticated(); // Usually created by server-side logic or after payment success
       allow update: if isAdmin();
     }
 
@@ -67,7 +247,6 @@ service cloud.firestore {
     match /chats/{chatId} {
       function isChatParticipant() {
         return isAuthenticated() && (
-          chatId == "global_demo_chat" ||
           (resource != null && request.auth.uid in resource.data.participants) ||
           (resource == null && request.auth.uid in request.resource.data.participants) ||
           isAdmin()
@@ -82,16 +261,10 @@ service cloud.firestore {
       );
       
       match /messages/{messageId} {
-        allow read: if isAuthenticated() && (
-          chatId == "global_demo_chat" ||
-          isAdmin() ||
-          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-        );
-        allow create: if isAuthenticated() && (
-          chatId == "global_demo_chat" ||
-          isAdmin() ||
-          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-        ) && (request.resource.data.senderId == request.auth.uid || isAdmin());
+        allow read: if isChatParticipant();
+        allow create: if isChatParticipant() && 
+                        request.resource.data.senderId == request.auth.uid &&
+                        isValidMessage(request.resource.data);
       }
     }
   }

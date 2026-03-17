@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
-import { db } from "../firebase";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { Gig } from "../types";
 import { DashboardLayout } from "../components/Layout";
@@ -25,7 +25,7 @@ export const Dashboard = () => {
       setGigs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Gig)));
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching gigs:", error);
+      handleFirestoreError(error, OperationType.LIST, "gigs");
       setLoading(false);
     });
 

@@ -144,7 +144,7 @@ export const GigDetails = () => {
       return onSnapshot(q, (snapshot) => {
         setApplications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Application)));
       }, (error) => {
-        console.error("Applications snapshot error:", error);
+        handleFirestoreError(error, OperationType.LIST, `gigs/${id}/applications`);
       });
     } else if (profile?.role === "worker") {
       // Check if worker has already applied
@@ -152,7 +152,7 @@ export const GigDetails = () => {
       return onSnapshot(q, (snapshot) => {
         setHasApplied(!snapshot.empty);
       }, (error) => {
-        console.error("Worker application check error:", error);
+        handleFirestoreError(error, OperationType.LIST, `gigs/${id}/applications`);
       });
     }
   }, [id, profile, gig?.employerId]);

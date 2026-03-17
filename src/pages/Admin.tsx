@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { collection, query, onSnapshot, updateDoc, doc, deleteDoc } from "firebase/firestore";
-import { db } from "../firebase";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { UserProfile, Gig, Transaction } from "../types";
 import { DashboardLayout } from "../components/Layout";
@@ -21,12 +21,18 @@ export const AdminPanel = () => {
 
     const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
       setUsers(snap.docs.map(d => ({ ...d.data() } as UserProfile)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, "users");
     });
     const unsubGigs = onSnapshot(collection(db, "gigs"), (snap) => {
       setGigs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Gig)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, "gigs");
     });
     const unsubTrans = onSnapshot(collection(db, "transactions"), (snap) => {
       setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() } as Transaction)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, "transactions");
     });
 
     return () => { unsubUsers(); unsubGigs(); unsubTrans(); };

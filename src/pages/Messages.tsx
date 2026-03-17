@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { collection, query, where, onSnapshot, addDoc, serverTimestamp, orderBy, doc, updateDoc, setDoc, getDoc } from "firebase/firestore";
-import { db } from "../firebase";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { Message, Chat } from "../types";
 import { DashboardLayout } from "../components/Layout";
@@ -39,7 +39,7 @@ export const Messages = () => {
       setChats(chatList);
       setLoading(false);
     }, (error) => {
-      console.error("Chats snapshot error:", error);
+      handleFirestoreError(error, OperationType.LIST, "chats");
       setLoading(false);
     });
 
@@ -60,7 +60,7 @@ export const Messages = () => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)));
     }, (error) => {
-      console.error("Messages snapshot error:", error);
+      handleFirestoreError(error, OperationType.LIST, `chats/${selectedChat.id}/messages`);
     });
 
     return unsubscribe;
@@ -86,7 +86,7 @@ export const Messages = () => {
         updatedAt: serverTimestamp()
       });
     } catch (error) {
-      console.error("Error sending message:", error);
+      handleFirestoreError(error, OperationType.WRITE, `chats/${selectedChat.id}/messages`);
     }
   };
 

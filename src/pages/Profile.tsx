@@ -64,6 +64,28 @@ export const Profile = () => {
     });
   };
 
+  React.useEffect(() => {
+    if (profile && !editing) {
+      setFormData({
+        displayName: profile.displayName || "",
+        bio: profile.bio || "",
+        phoneNumber: profile.phoneNumber || "",
+        address: profile.address || "",
+        skills: profile.skills?.join(", ") || "",
+        experience: profile.experience || "",
+        paymentNumber: profile.gcashNumber || "",
+        idType: profile.idType || "",
+        idNumber: profile.idNumber || "",
+        notificationPreferences: profile.notificationPreferences || {
+          newApplications: true,
+          messages: true,
+          gigStatusUpdates: true,
+          marketing: false
+        }
+      });
+    }
+  }, [profile, editing]);
+
   return (
     <DashboardLayout>
       <div className="max-w-3xl mx-auto">
