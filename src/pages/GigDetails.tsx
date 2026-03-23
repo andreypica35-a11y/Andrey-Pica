@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, getDoc, collection, addDoc, query, where, onSnapshot, serverTimestamp, updateDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, collection, addDoc, query, where, onSnapshot, serverTimestamp, updateDoc, setDoc, increment } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { Gig, Application, UserProfile } from "../types";
@@ -9,6 +9,7 @@ import { Card, Button, Badge, cn } from "../components/UI";
 import { motion } from "motion/react";
 import { MapPin, Clock, DollarSign, User, Shield, CheckCircle, AlertCircle, MessageSquare, X, Star } from "lucide-react";
 import { format } from "date-fns";
+import { toast } from "sonner";
 
 const WorkerProfileModal = ({ worker, onClose }: { worker: UserProfile, onClose: () => void }) => (
   <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -100,7 +101,6 @@ export const GigDetails = () => {
   const [selectedWorker, setSelectedWorker] = useState<UserProfile | null>(null);
   const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
   const fetchWorkerProfile = async (workerId: string) => {
     try {
@@ -168,6 +168,7 @@ export const GigDetails = () => {
         status: "pending",
         createdAt: serverTimestamp()
       });
+      toast.success("Application submitted successfully!");
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `gigs/${id}/applications`);
     } finally {
@@ -195,8 +196,10 @@ export const GigDetails = () => {
           });
         }
       });
+      toast.success(`Accepted ${app.workerName}'s application!`);
     } catch (error) {
       console.error("Error accepting application:", error);
+      toast.error("Failed to accept application.");
     }
   };
 
@@ -204,7 +207,7 @@ export const GigDetails = () => {
     if (!id || !gig) return;
     try {
       await updateDoc(doc(db, "gigs", id), { status: "review" });
-      setFeedback({ type: 'success', message: "Gig marked as done. Waiting for employer confirmation." });
+      toast.success("Gig marked as done. Waiting for employer confirmation.");
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `gigs/${id}`);
     }
@@ -237,12 +240,16 @@ export const GigDetails = () => {
           ...result,
           createdAt: serverTimestamp()
         });
-        setFeedback({ type: 'success', message: `Gig confirmed completed! Payment via ${paymentMethod.toUpperCase()} released.` });
+        // Update worker balance
+        await updateDoc(doc(db, "users", gig.workerId), {
+          balance: increment(result.workerAmount)
+        });
+        toast.success(`Gig confirmed completed! Payment via ${paymentMethod.toUpperCase()} released.`);
         setTimeout(() => navigate("/dashboard"), 2000);
       }
     } catch (error) {
       console.error("Payment error:", error);
-      setFeedback({ type: 'error', message: "Payment failed. Please try again." });
+      toast.error("Payment failed. Please try again.");
     } finally {
       setPaying(false);
     }
@@ -252,7 +259,7 @@ export const GigDetails = () => {
     if (!id || !gig) return;
     try {
       await updateDoc(doc(db, "gigs", id), { status: "cancelled" });
-      setFeedback({ type: 'success', message: "Gig has been cancelled." });
+      toast.success("Gig has been cancelled.");
       setTimeout(() => navigate("/dashboard"), 2000);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `gigs/${id}`);
@@ -541,25 +548,6 @@ export const GigDetails = () => {
           )}
         </div>
       </div>
-
-      {feedback && (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={cn(
-              "px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3",
-              feedback.type === 'success' ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
-            )}
-          >
-            {feedback.type === 'success' ? <CheckCircle className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
-            <p className="font-bold text-sm">{feedback.message}</p>
-            <button onClick={() => setFeedback(null)} className="p-1 hover:bg-white/20 rounded-full">
-              <X className="w-4 h-4" />
-            </button>
-          </motion.div>
-        </div>
-      )}
 
       {showCancelConfirm && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">

@@ -6,6 +6,7 @@ import { auth, googleProvider } from "../firebase";
 import { motion } from "motion/react";
 import { Button, Card } from "../components/UI";
 import { Clock, Wallet, Shield } from "lucide-react";
+import { toast } from "sonner";
 
 export const LandingPage = () => {
   const { user, profile } = useAuth();
@@ -31,10 +32,10 @@ export const LandingPage = () => {
       }
       
       if (error.code === 'auth/network-request-failed') {
-        alert("Network error: Please check your internet connection or disable any ad-blockers/privacy extensions that might be blocking Google Sign-In.");
+        toast.error("Network error: Please check your internet connection or disable any ad-blockers/privacy extensions that might be blocking Google Sign-In.");
       } else {
         console.error("Sign in error:", error);
-        alert(`Sign in failed: ${error.message}`);
+        toast.error(`Sign in failed: ${error.message}`);
       }
     } finally {
       setSigningIn(false);

@@ -13,7 +13,8 @@ import {
   Menu, 
   X,
   LayoutDashboard,
-  RefreshCw
+  RefreshCw,
+  Wallet
 } from "lucide-react";
 import { cn } from "./UI";
 
@@ -37,6 +38,7 @@ export const DashboardLayout = ({ children }: { children: React.ReactNode }) => 
 
   const navItems = [
     { label: "Dashboard", icon: <LayoutDashboard className="w-5 h-5" />, path: "/dashboard" },
+    { label: "Wallet", icon: <Wallet className="w-5 h-5" />, path: "/wallet" },
     { label: "Messages", icon: <MessageSquare className="w-5 h-5" />, path: "/messages" },
     { label: "Profile", icon: <User className="w-5 h-5" />, path: "/profile" },
   ];

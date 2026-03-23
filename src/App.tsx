@@ -8,6 +8,9 @@ import { GigDetails } from "./pages/GigDetails";
 import { Messages } from "./pages/Messages";
 import { Profile } from "./pages/Profile";
 import { AdminPanel } from "./pages/Admin";
+import { Wallet } from "./pages/Wallet";
+import { HelpCenter } from "./pages/Help";
+import { Toaster } from "sonner";
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, profile, loading } = useAuth();
@@ -21,6 +24,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 export default function App() {
   return (
     <AuthProvider>
+      <Toaster position="top-center" richColors />
       <Router>
         <Routes>
           <Route path="/" element={<LandingPage />} />
@@ -30,7 +34,9 @@ export default function App() {
           <Route path="/gig/:id" element={<ProtectedRoute><GigDetails /></ProtectedRoute>} />
           <Route path="/messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+          <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
+          <Route path="/help" element={<ProtectedRoute><HelpCenter /></ProtectedRoute>} />
           
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

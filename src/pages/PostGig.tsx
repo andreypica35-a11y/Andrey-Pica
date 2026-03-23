@@ -5,6 +5,7 @@ import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { DashboardLayout } from "../components/Layout";
 import { Card, Button, Input } from "../components/UI";
+import { toast } from "sonner";
 
 export const PostGig = () => {
   const { profile } = useAuth();
@@ -31,9 +32,11 @@ export const PostGig = () => {
       };
       
       await addDoc(collection(db, "gigs"), gigData);
+      toast.success("Gig posted successfully!");
       navigate("/dashboard");
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, "gigs");
+      toast.error("Failed to post gig.");
     } finally {
       setLoading(false);
     }

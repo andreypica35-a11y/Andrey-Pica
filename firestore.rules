@@ -14,6 +14,7 @@ service cloud.firestore {
     //   - photoURL: string
     //   - role: string (enum: ["worker", "employer", "admin"])
     //   - isVerified: boolean
+    //   - balance: number
     //   - bio: string
     //   - phoneNumber: string
     //   - address: string
@@ -101,8 +102,8 @@ service cloud.firestore {
     
     function isAdmin() {
       return isAuthenticated() && (
-        (request.auth.token.email == "andreypica35@gmail.com" && request.auth.token.email_verified == true) ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+        (request.auth.token.get('email', '') == "andreypica35@gmail.com" && request.auth.token.get('email_verified', false) == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin')
       );
     }
 
@@ -139,18 +140,25 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return hasRequiredFields(['uid', 'email', 'role', 'createdAt']) &&
+      return hasRequiredFields(['uid', 'email', 'role']) &&
              data.uid is string && data.uid.size() > 0 &&
              data.email is string && isValidEmail(data.email) &&
              data.role in ['worker', 'employer', 'admin'] &&
-             data.createdAt is timestamp &&
-             (data.displayName == null || validString('displayName', 100)) &&
-             (data.bio == null || validString('bio', 1000)) &&
-             (data.phoneNumber == null || validString('phoneNumber', 20)) &&
-             (data.address == null || validString('address', 200)) &&
-             (data.skills == null || data.skills is list) &&
-             (data.rating == null || data.rating is number) &&
-             (data.reviewCount == null || data.reviewCount is number);
+             (data.get('createdAt', null) == null || data.createdAt is timestamp) &&
+             (data.get('balance', null) == null || data.balance is number) &&
+             (data.get('verificationStatus', null) == null || data.verificationStatus in ['unverified', 'pending', 'verified', 'rejected']) &&
+             (data.get('displayName', null) == null || validString('displayName', 100)) &&
+             (data.get('bio', null) == null || validString('bio', 1000)) &&
+             (data.get('phoneNumber', null) == null || validString('phoneNumber', 20)) &&
+             (data.get('address', null) == null || validString('address', 200)) &&
+             (data.get('skills', null) == null || data.skills is list) &&
+             (data.get('rating', null) == null || data.rating is number) &&
+             (data.get('reviewCount', null) == null || data.reviewCount is number) &&
+             (data.get('idType', null) == null || data.idType is string) &&
+             (data.get('idNumber', null) == null || data.idNumber is string) &&
+             (data.get('idImageURL', null) == null || data.idImageURL is string) &&
+             (data.get('gcashNumber', null) == null || data.gcashNumber is string) &&
+             (data.get('notificationPreferences', null) == null || data.notificationPreferences is map);
     }
 
     function isValidGig(data) {
@@ -192,9 +200,18 @@ service cloud.firestore {
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
                       (request.resource.data.role != 'admin' || isAdmin());
       
-      allow update: if (isOwner(userId) || isAdmin()) && isValidUser(request.resource.data) &&
-                      uidNotModified() &&
-                      (request.resource.data.role == resource.data.role || isAdmin());
+      allow update: if isAdmin() || (
+        isOwner(userId) && 
+        isValidUser(request.resource.data) &&
+        uidNotModified() &&
+        (request.resource.data.role == resource.data.get('role', '') || (request.resource.data.role in ['worker', 'employer'] && resource.data.get('role', '') in ['worker', 'employer'])) &&
+        (request.resource.data.get('isVerified', false) == resource.data.get('isVerified', false)) &&
+        (request.resource.data.get('verificationStatus', 'unverified') == resource.data.get('verificationStatus', 'unverified') || request.resource.data.get('verificationStatus', 'unverified') in ['pending', 'unverified'])
+      ) || (
+        isAuthenticated() && 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance']) && 
+        isValidUser(request.resource.data)
+      );
     }
 
     // Gigs

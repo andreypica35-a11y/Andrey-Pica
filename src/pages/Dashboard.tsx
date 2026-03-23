@@ -113,9 +113,11 @@ export const Dashboard = () => {
               <Wallet className="w-5 h-5" />
               Wallet Balance
             </h3>
-            <p className="text-4xl font-bold mb-2">₱0.00</p>
+            <p className="text-4xl font-bold mb-2">₱{(profile?.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
             <p className="text-emerald-100 text-sm mb-6">Connect your GCash or Maya to withdraw earnings.</p>
-            <Button variant="secondary" className="w-full bg-white text-emerald-600 hover:bg-zinc-50">Manage Wallet</Button>
+            <Link to="/wallet">
+              <Button variant="secondary" className="w-full bg-white text-emerald-600 hover:bg-zinc-50">Manage Wallet</Button>
+            </Link>
           </Card>
 
           <Card className="p-6">
@@ -138,7 +140,11 @@ export const Dashboard = () => {
                 <p className="text-xs text-zinc-500">{profile?.isVerified ? "You have full access." : "Verify to build trust."}</p>
               </div>
             </div>
-            {!profile?.isVerified && <Button variant="outline" className="w-full">Get Verified</Button>}
+            {!profile?.isVerified && (
+              <Link to="/profile">
+                <Button variant="outline" className="w-full">Get Verified</Button>
+              </Link>
+            )}
           </Card>
         </div>
       </div>

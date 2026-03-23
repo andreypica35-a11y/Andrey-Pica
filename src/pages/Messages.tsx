@@ -7,6 +7,7 @@ import { DashboardLayout } from "../components/Layout";
 import { Card, Button, Input, cn } from "../components/UI";
 import { Send, MessageSquare, User, Search } from "lucide-react";
 import { format } from "date-fns";
+import { toast } from "sonner";
 
 export const Messages = () => {
   const { profile } = useAuth();
@@ -87,6 +88,7 @@ export const Messages = () => {
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `chats/${selectedChat.id}/messages`);
+      toast.error("Failed to send message.");
     }
   };
 

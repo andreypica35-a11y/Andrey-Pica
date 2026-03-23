@@ -4,12 +4,12 @@ import { DashboardLayout } from "../components/Layout";
 import { Card, Button, Input } from "../components/UI";
 import { User, Shield, CheckCircle, Wallet, Star, Bell } from "lucide-react";
 import { motion } from "motion/react";
+import { toast } from "sonner";
 
 export const Profile = () => {
   const { profile, updateProfile } = useAuth();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [formData, setFormData] = useState({
     displayName: profile?.displayName || "",
     bio: profile?.bio || "",
@@ -20,6 +20,7 @@ export const Profile = () => {
     paymentNumber: profile?.gcashNumber || "",
     idType: profile?.idType || "",
     idNumber: profile?.idNumber || "",
+    idImageURL: profile?.idImageURL || "",
     notificationPreferences: profile?.notificationPreferences || {
       newApplications: true,
       messages: true,
@@ -41,15 +42,51 @@ export const Profile = () => {
         gcashNumber: formData.paymentNumber,
         idType: formData.idType,
         idNumber: formData.idNumber,
+        idImageURL: formData.idImageURL,
         notificationPreferences: formData.notificationPreferences
       });
-      setFeedback({ type: 'success', message: 'Profile updated successfully!' });
+      toast.success('Profile updated successfully!');
       setEditing(false);
     } catch (error) {
-      setFeedback({ type: 'error', message: 'Failed to update profile.' });
+      toast.error('Failed to update profile.');
     } finally {
       setSaving(false);
-      setTimeout(() => setFeedback(null), 3000);
+    }
+  };
+
+  const handleVerifySubmit = async () => {
+    if (!formData.idType || !formData.idNumber) {
+      toast.error('Please fill in ID details first.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateProfile({
+        idType: formData.idType,
+        idNumber: formData.idNumber,
+        idImageURL: formData.idImageURL,
+        verificationStatus: 'pending'
+      });
+      toast.success('Verification request submitted!');
+    } catch (error) {
+      toast.error('Failed to submit verification.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 500000) { // 500KB limit for base64
+        toast.error("Image is too large. Please select an image smaller than 500KB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData({ ...formData, idImageURL: reader.result as string });
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -76,6 +113,7 @@ export const Profile = () => {
         paymentNumber: profile.gcashNumber || "",
         idType: profile.idType || "",
         idNumber: profile.idNumber || "",
+        idImageURL: profile.idImageURL || "",
         notificationPreferences: profile.notificationPreferences || {
           newApplications: true,
           messages: true,
@@ -99,18 +137,6 @@ export const Profile = () => {
             {saving ? "Saving..." : editing ? "Save Changes" : "Edit Profile"}
           </Button>
         </div>
-
-        {feedback && (
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`mb-6 p-4 rounded-xl text-center font-medium ${
-              feedback.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-700 border border-red-100'
-            }`}
-          >
-            {feedback.message}
-          </motion.div>
-        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <Card className="p-6 text-center">
@@ -220,11 +246,45 @@ export const Profile = () => {
                           )}
                         </div>
                       </div>
-                      {!profile?.isVerified && !editing && (
+
+                      {editing && (
+                        <div className="mt-4 space-y-2">
+                          <label className="text-sm font-bold text-zinc-500">ID Document Image</label>
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            onChange={handleFileChange}
+                            className="w-full text-sm text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
+                          />
+                        </div>
+                      )}
+
+                      {!profile?.isVerified && !editing && profile?.verificationStatus !== 'pending' && (
+                        <div className="mt-6">
+                          <Button 
+                            className="w-full" 
+                            onClick={handleVerifySubmit}
+                            disabled={saving || !profile?.idType || !profile?.idNumber}
+                          >
+                            Submit for Verification
+                          </Button>
+                        </div>
+                      )}
+
+                      {profile?.verificationStatus === 'pending' && !editing && (
                         <div className="mt-4 p-4 bg-amber-50 border border-amber-100 rounded-xl flex gap-3">
                           <Shield className="w-5 h-5 text-amber-600 shrink-0" />
                           <p className="text-sm text-amber-800">
                             Your ID is currently under review. Once verified, you'll get a badge and more gig opportunities.
+                          </p>
+                        </div>
+                      )}
+                      
+                      {profile?.verificationStatus === 'rejected' && !editing && (
+                        <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-xl flex gap-3">
+                          <Shield className="w-5 h-5 text-red-600 shrink-0" />
+                          <p className="text-sm text-red-800">
+                            Your verification was rejected. Please update your ID details and try again.
                           </p>
                         </div>
                       )}

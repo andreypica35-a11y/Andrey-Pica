@@ -45,6 +45,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               photoURL: user.photoURL || "",
               role: isAdminEmail ? "admin" : "worker",
               isVerified: false,
+              verificationStatus: 'unverified',
+              balance: 0,
               createdAt: serverTimestamp(),
               rating: 5,
               reviewCount: 0,

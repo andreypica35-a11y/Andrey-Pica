@@ -1,4 +1,5 @@
 export type UserRole = "worker" | "employer" | "admin";
+export type VerificationStatus = "unverified" | "pending" | "verified" | "rejected";
 
 export interface NotificationPreferences {
   newApplications: boolean;
@@ -14,12 +15,14 @@ export interface UserProfile {
   photoURL: string;
   role: UserRole;
   isVerified: boolean;
+  verificationStatus?: VerificationStatus;
   bio?: string;
   phoneNumber?: string;
   address?: string;
   skills?: string[];
   experience?: string;
   gcashNumber?: string;
+  balance?: number;
   idType?: string;
   idNumber?: string;
   idImageURL?: string;
