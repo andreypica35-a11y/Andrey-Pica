@@ -1,13 +1,17 @@
 import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, onSnapshot, collection, addDoc } from "firebase/firestore";
+import { auth, db, handleFirestoreError, OperationType } from "../firebase";
 import { DashboardLayout } from "../components/Layout";
 import { Card, Button, Input } from "../components/UI";
-import { User, Shield, CheckCircle, Wallet, Star, Bell } from "lucide-react";
+import { User, Shield, CheckCircle, Wallet, Star, Bell, CreditCard, CheckCircle2, ChevronRight } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
 import { toast } from "sonner";
 
 export const Profile = () => {
   const { profile, updateProfile } = useAuth();
+  const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
@@ -17,7 +21,6 @@ export const Profile = () => {
     address: profile?.address || "",
     skills: profile?.skills?.join(", ") || "",
     experience: profile?.experience || "",
-    paymentNumber: profile?.gcashNumber || "",
     idType: profile?.idType || "",
     idNumber: profile?.idNumber || "",
     idImageURL: profile?.idImageURL || "",
@@ -32,22 +35,46 @@ export const Profile = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await updateProfile({
+      const isIdComplete = formData.idType && formData.idNumber && formData.idImageURL;
+      const shouldSetPending = isIdComplete && profile?.verificationStatus === 'unverified';
+
+      const updateData: any = {
         displayName: formData.displayName,
         bio: formData.bio,
         phoneNumber: formData.phoneNumber,
         address: formData.address,
         skills: formData.skills.split(",").map(s => s.trim()).filter(s => s !== ""),
         experience: formData.experience,
-        gcashNumber: formData.paymentNumber,
         idType: formData.idType,
         idNumber: formData.idNumber,
         idImageURL: formData.idImageURL,
         notificationPreferences: formData.notificationPreferences
-      });
-      toast.success('Profile updated successfully!');
+      };
+
+      if (shouldSetPending) {
+        updateData.verificationStatus = 'pending';
+      }
+
+      await updateProfile(updateData);
+
+      if (shouldSetPending) {
+        // Notify admin
+        await addDoc(collection(db, "notifications"), {
+          type: "verification_request",
+          userId: profile?.uid,
+          userName: formData.displayName || profile?.displayName,
+          message: `New verification request from ${formData.displayName || profile?.displayName}`,
+          read: false,
+          createdAt: serverTimestamp()
+        });
+        toast.success('Profile updated and verification request submitted!');
+      } else {
+        toast.success('Profile updated successfully!');
+      }
+      
       setEditing(false);
     } catch (error) {
+      console.error("Save error:", error);
       toast.error('Failed to update profile.');
     } finally {
       setSaving(false);
@@ -61,15 +88,31 @@ export const Profile = () => {
     }
     setSaving(true);
     try {
-      await updateProfile({
-        idType: formData.idType,
-        idNumber: formData.idNumber,
-        idImageURL: formData.idImageURL,
-        verificationStatus: 'pending'
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error("Authentication required");
+
+      const response = await fetch("/api/verify-id", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          idType: formData.idType,
+          idNumber: formData.idNumber,
+          idImageURL: formData.idImageURL
+        })
       });
-      toast.success('Verification request submitted!');
-    } catch (error) {
-      toast.error('Failed to submit verification.');
+
+      const result = await response.json();
+      if (result.success) {
+        toast.success('ID verified successfully! You are now a verified worker.');
+      } else {
+        throw new Error(result.error || "Verification failed");
+      }
+    } catch (error: any) {
+      console.error("Verification error:", error);
+      toast.error(error.message || 'Failed to submit verification.');
     } finally {
       setSaving(false);
     }
@@ -110,7 +153,6 @@ export const Profile = () => {
         address: profile.address || "",
         skills: profile.skills?.join(", ") || "",
         experience: profile.experience || "",
-        paymentNumber: profile.gcashNumber || "",
         idType: profile.idType || "",
         idNumber: profile.idNumber || "",
         idImageURL: profile.idImageURL || "",
@@ -202,12 +244,45 @@ export const Profile = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-bold text-zinc-500">Payment Number (GCash/Maya)</label>
-                  {editing ? (
-                    <Input value={formData.paymentNumber} onChange={e => setFormData({...formData, paymentNumber: e.target.value})} placeholder="09123456789" />
-                  ) : (
-                    <p className="text-lg font-medium">{profile?.gcashNumber || "Not set"}</p>
-                  )}
+                  <label className="text-sm font-bold text-zinc-500">Payment Methods</label>
+                  <div className="space-y-3">
+                    {profile?.linkedAccounts && profile.linkedAccounts.length > 0 ? (
+                      profile.linkedAccounts.map(account => (
+                        <div key={account.id} className="flex items-center justify-between p-3 bg-zinc-50 rounded-xl border border-zinc-100">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                              account.provider === 'gcash' ? 'bg-blue-50 text-blue-600' : 
+                              account.provider === 'maya' ? 'bg-zinc-900 text-white' : 'bg-emerald-50 text-emerald-600'
+                            }`}>
+                              <CreditCard className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-zinc-900 flex items-center gap-1">
+                                {account.provider.toUpperCase()}
+                                {account.isDefault && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
+                              </p>
+                              <p className="text-[10px] text-zinc-500">{account.accountNumber}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : profile?.paymentNumber ? (
+                      <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-100">
+                        <p className="text-xs font-bold text-zinc-900">Legacy GCash</p>
+                        <p className="text-[10px] text-zinc-500">{profile.paymentNumber}</p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-zinc-500 italic">No payment methods linked.</p>
+                    )}
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="w-full text-xs"
+                      onClick={() => navigate("/wallet")}
+                    >
+                      Manage in Wallet
+                    </Button>
+                  </div>
                 </div>
 
                 {profile?.role === "worker" && (
@@ -260,13 +335,20 @@ export const Profile = () => {
                       )}
 
                       {!profile?.isVerified && !editing && profile?.verificationStatus !== 'pending' && (
-                        <div className="mt-6">
+                        <div className="mt-6 p-6 bg-emerald-50 rounded-3xl border border-emerald-100">
+                          <div className="flex items-center gap-3 mb-4 text-emerald-800">
+                            <Shield className="w-6 h-6" />
+                            <h3 className="font-bold">Ready for Verification?</h3>
+                          </div>
+                          <p className="text-sm text-emerald-700 mb-6">
+                            You've provided your ID details. Get verified now to unlock more gigs and build trust with employers.
+                          </p>
                           <Button 
-                            className="w-full" 
+                            className="w-full h-12 shadow-lg shadow-emerald-200" 
                             onClick={handleVerifySubmit}
-                            disabled={saving || !profile?.idType || !profile?.idNumber}
+                            disabled={saving || !formData.idType || !formData.idNumber || !formData.idImageURL}
                           >
-                            Submit for Verification
+                            {saving ? "Verifying ID..." : "Verify ID Now"}
                           </Button>
                         </div>
                       )}

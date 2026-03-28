@@ -15,6 +15,11 @@ export const Dashboard = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Cleanup expired gigs
+    fetch("/api/gigs/cleanup", { method: "POST" }).catch(err => console.error("Cleanup failed:", err));
+  }, []);
+
+  useEffect(() => {
     if (!profile) return;
 
     const q = profile.role === "worker" 
@@ -22,7 +27,10 @@ export const Dashboard = () => {
       : query(collection(db, "gigs"), where("employerId", "==", profile.uid), orderBy("createdAt", "desc"));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setGigs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Gig)));
+      const allGigs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Gig));
+      // For workers, we only want open gigs (already filtered by query)
+      // For employers, we show all their gigs, but we might want to label expired ones
+      setGigs(allGigs);
       setLoading(false);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, "gigs");
@@ -31,6 +39,12 @@ export const Dashboard = () => {
 
     return unsubscribe;
   }, [profile]);
+
+  const [showExpired, setShowExpired] = useState(false);
+
+  const filteredGigs = profile?.role === "worker" 
+    ? gigs 
+    : gigs.filter(g => showExpired || g.status !== "expired");
 
   return (
     <DashboardLayout>
@@ -43,34 +57,51 @@ export const Dashboard = () => {
             {profile?.role === "worker" ? "Find your next raket nearby." : "Manage your posted gigs and applicants."}
           </p>
         </div>
-        {profile?.role === "employer" && (
-          <Link to="/post-gig">
-            <Button className="gap-2">
-              <PlusCircle className="w-5 h-5" />
-              Post a Gig
-            </Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-3">
+          {profile?.role === "employer" && (
+            <>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setShowExpired(!showExpired)}
+                className={showExpired ? "bg-zinc-100" : ""}
+              >
+                {showExpired ? "Hide Expired" : "Show Expired"}
+              </Button>
+              <Link to="/post-gig">
+                <Button className="gap-2">
+                  <PlusCircle className="w-5 h-5" />
+                  Post a Gig
+                </Button>
+              </Link>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
           <h2 className="text-xl font-bold flex items-center gap-2">
             {profile?.role === "worker" ? "Available Gigs" : "Your Gigs"}
-            <span className="px-2 py-0.5 bg-zinc-100 text-zinc-500 rounded-md text-xs">{gigs.length}</span>
+            <span className="px-2 py-0.5 bg-zinc-100 text-zinc-500 rounded-md text-xs">{filteredGigs.length}</span>
           </h2>
 
           {loading ? (
             <div className="space-y-4">
               {[1, 2, 3].map(i => <div key={i} className="h-32 bg-zinc-100 rounded-2xl animate-pulse" />)}
             </div>
-          ) : gigs.length > 0 ? (
+          ) : filteredGigs.length > 0 ? (
             <div className="space-y-4">
-              {gigs.map((gig) => (
+              {filteredGigs.map((gig) => (
                 <Card key={gig.id} className="p-6 hover:border-emerald-200 transition-all group">
                   <div className="flex justify-between items-start mb-4">
                     <div>
-                      <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1 block">{gig.category}</span>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider block">{gig.category}</span>
+                        {gig.status === "expired" && (
+                          <span className="text-[10px] font-bold bg-red-100 text-red-600 px-1.5 py-0.5 rounded uppercase tracking-wider">Expired</span>
+                        )}
+                      </div>
                       <h3 className="text-xl font-bold group-hover:text-emerald-600 transition-colors">{gig.title}</h3>
                     </div>
                     <div className="text-right">

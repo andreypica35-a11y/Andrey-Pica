@@ -1,13 +1,13 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, setPersistence, browserLocalPersistence } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, setPersistence, browserSessionPersistence } from "firebase/auth";
 import { getFirestore, doc, getDoc, setDoc, collection, query, where, onSnapshot, addDoc, updateDoc, serverTimestamp, getDocFromServer } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Set persistence to local to ensure session is maintained
-setPersistence(auth, browserLocalPersistence).catch((err) => {
+// Set persistence to session to ensure user is signed out when tab/window is closed
+setPersistence(auth, browserSessionPersistence).catch((err) => {
   console.error("Auth persistence error:", err);
 });
 

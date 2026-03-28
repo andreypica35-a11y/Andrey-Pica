@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, onSnapshot, updateDoc, doc, deleteDoc } from "firebase/firestore";
+import { collection, query, onSnapshot, updateDoc, doc, deleteDoc, getDoc, where, orderBy, limit } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { UserProfile, Gig, Transaction } from "../types";
@@ -17,6 +17,25 @@ export const AdminPanel = () => {
   const [activeTab, setActiveTab] = useState<'users' | 'gigs' | 'transactions' | 'verifications'>('users');
   const [gigToDelete, setGigToDelete] = useState<string | null>(null);
   const [selectedUserForReview, setSelectedUserForReview] = useState<UserProfile | null>(null);
+  const [loadingPrivate, setLoadingPrivate] = useState(false);
+
+  const fetchPrivateData = async (user: UserProfile) => {
+    setLoadingPrivate(true);
+    try {
+      const privateDoc = await getDoc(doc(db, "users_private", user.uid));
+      if (privateDoc.exists()) {
+        setSelectedUserForReview({ ...user, ...privateDoc.data() });
+      } else {
+        setSelectedUserForReview(user);
+      }
+    } catch (error) {
+      console.error("Error fetching private data:", error);
+      toast.error("Failed to load ID details.");
+      setSelectedUserForReview(user);
+    } finally {
+      setLoadingPrivate(false);
+    }
+  };
 
   useEffect(() => {
     if (profile?.role !== "admin") return;
@@ -37,7 +56,27 @@ export const AdminPanel = () => {
       handleFirestoreError(error, OperationType.LIST, "transactions");
     });
 
-    return () => { unsubUsers(); unsubGigs(); unsubTrans(); };
+    const unsubNotifications = onSnapshot(
+      query(collection(db, "notifications"), where("read", "==", false), orderBy("createdAt", "desc"), limit(10)),
+      (snap) => {
+        snap.docChanges().forEach((change) => {
+          if (change.type === "added") {
+            const data = change.doc.data();
+            if (data.type === "verification_request") {
+              toast.info(`New Verification Request: ${data.userName}`, {
+                description: data.message,
+                action: {
+                  label: "View",
+                  onClick: () => setActiveTab('verifications')
+                }
+              });
+            }
+          }
+        });
+      }
+    );
+
+    return () => { unsubUsers(); unsubGigs(); unsubTrans(); unsubNotifications(); };
   }, [profile]);
 
   const handleVerifyUser = async (uid: string, status: boolean, verificationStatus: UserProfile['verificationStatus'] = 'verified') => {
@@ -68,7 +107,7 @@ export const AdminPanel = () => {
 
   if (profile?.role !== "admin") return <DashboardLayout>Access Denied</DashboardLayout>;
 
-  const pendingVerifications = users.filter(u => u.verificationStatus === 'pending');
+  const pendingVerifications = users.filter(u => u.verificationStatus !== 'unverified');
 
   return (
     <DashboardLayout>
@@ -130,12 +169,15 @@ export const AdminPanel = () => {
                 <div className="flex items-center gap-4">
                   <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} className="w-12 h-12 rounded-full" alt="" />
                   <div>
-                    <p className="font-bold">{user.displayName}</p>
-                    <p className="text-xs text-zinc-500">{user.idType}: {user.idNumber}</p>
+                    <p className="font-bold flex items-center gap-2">
+                      {user.displayName}
+                      {user.isVerified && <CheckCircle className="w-4 h-4 text-emerald-500" />}
+                    </p>
+                    <p className="text-xs text-zinc-500">Status: <span className="capitalize">{user.verificationStatus}</span></p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setSelectedUserForReview(user)}>Review ID</Button>
+                  <Button size="sm" variant="outline" onClick={() => fetchPrivateData(user)}>Review ID</Button>
                   <Button size="sm" onClick={() => handleVerifyUser(user.uid, true)}>Approve</Button>
                   <Button size="sm" variant="outline" className="text-red-600" onClick={() => handleVerifyUser(user.uid, false, 'rejected')}>Reject</Button>
                 </div>

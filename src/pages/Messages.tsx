@@ -5,17 +5,20 @@ import { useAuth } from "../context/AuthContext";
 import { Message, Chat } from "../types";
 import { DashboardLayout } from "../components/Layout";
 import { Card, Button, Input, cn } from "../components/UI";
-import { Send, MessageSquare, User, Search } from "lucide-react";
+import { Send, MessageSquare, User, Search, X } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { useLocation } from "react-router-dom";
 
 export const Messages = () => {
   const { profile } = useAuth();
+  const location = useLocation();
   const [chats, setChats] = useState<Chat[]>([]);
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -39,13 +42,20 @@ export const Messages = () => {
       const chatList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
       setChats(chatList);
       setLoading(false);
+
+      // Handle chatId from navigation state
+      const stateChatId = location.state?.chatId;
+      if (stateChatId) {
+        const chat = chatList.find(c => c.id === stateChatId);
+        if (chat) setSelectedChat(chat);
+      }
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, "chats");
       setLoading(false);
     });
 
     return unsubscribe;
-  }, [profile]);
+  }, [profile, location.state]);
 
   useEffect(() => {
     if (!selectedChat) {
@@ -98,26 +108,41 @@ export const Messages = () => {
     return otherId ? chat.participantNames[otherId] || "User" : "User";
   };
 
+  const filteredChats = chats.filter(chat => 
+    getOtherParticipantName(chat).toLowerCase().includes(searchQuery.toLowerCase()) ||
+    chat.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <DashboardLayout>
       <div className="h-[calc(100vh-140px)] flex flex-col md:flex-row gap-6">
         {/* Chat List Sidebar */}
-        <div className="w-full md:w-80 flex flex-col gap-4">
+        <div className={cn(
+          "w-full md:w-80 flex flex-col gap-4",
+          selectedChat ? "hidden md:flex" : "flex"
+        )}>
           <h1 className="text-3xl font-bold">Messages</h1>
           <Card className="flex-1 flex flex-col overflow-hidden">
             <div className="p-4 border-b border-zinc-100">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                <Input className="pl-9 bg-zinc-50 border-none" placeholder="Search chats..." />
+                <Input 
+                  className="pl-9 bg-zinc-50 border-none" 
+                  placeholder="Search chats..." 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
               </div>
             </div>
             <div className="flex-1 overflow-y-auto">
               {loading ? (
                 <div className="p-8 text-center text-zinc-400 text-sm">Loading chats...</div>
-              ) : chats.length === 0 ? (
-                <div className="p-8 text-center text-zinc-400 text-sm">No conversations yet.</div>
+              ) : filteredChats.length === 0 ? (
+                <div className="p-8 text-center text-zinc-400 text-sm">
+                  {searchQuery ? "No chats match your search." : "No conversations yet."}
+                </div>
               ) : (
-                chats.map(chat => (
+                filteredChats.map(chat => (
                   <button
                     key={chat.id}
                     onClick={() => setSelectedChat(chat)}
@@ -146,17 +171,25 @@ export const Messages = () => {
         </div>
 
         {/* Message View */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className={cn(
+          "flex-1 flex flex-col min-w-0",
+          !selectedChat ? "hidden md:flex" : "flex"
+        )}>
           {selectedChat ? (
             <Card className="flex-1 flex flex-col overflow-hidden">
-              <div className="p-4 border-b border-zinc-100 flex items-center gap-3 bg-white sticky top-0 z-10">
-                <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center">
-                  <User className="w-5 h-5 text-zinc-400" />
+              <div className="p-4 border-b border-zinc-100 flex items-center justify-between bg-white sticky top-0 z-10">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center">
+                    <User className="w-5 h-5 text-zinc-400" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-zinc-900">{getOtherParticipantName(selectedChat)}</p>
+                    <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Online</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-bold text-zinc-900">{getOtherParticipantName(selectedChat)}</p>
-                  <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Online</p>
-                </div>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedChat(null)} className="md:hidden">
+                  <X className="w-5 h-5" />
+                </Button>
               </div>
 
               <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-zinc-50/30">

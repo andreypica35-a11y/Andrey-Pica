@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { doc, getDoc, collection, addDoc, query, where, onSnapshot, serverTimestamp, updateDoc, setDoc, increment } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../firebase";
+import { auth, db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { Gig, Application, UserProfile } from "../types";
 import { DashboardLayout } from "../components/Layout";
@@ -101,6 +101,7 @@ export const GigDetails = () => {
   const [selectedWorker, setSelectedWorker] = useState<UserProfile | null>(null);
   const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [hasReviewed, setHasReviewed] = useState(false);
 
   const fetchWorkerProfile = async (workerId: string) => {
     try {
@@ -214,12 +215,18 @@ export const GigDetails = () => {
   };
 
   const handlePayment = async () => {
-    if (!gig || !id) return;
+    if (!gig || !id || !profile) return;
     setPaying(true);
     try {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error("Authentication required");
+
       const response = await fetch("/api/payments/process", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
         body: JSON.stringify({
           amount: gig.payment,
           gigId: id,
@@ -228,28 +235,17 @@ export const GigDetails = () => {
           method: paymentMethod
         })
       });
+      
       const result = await response.json();
       if (result.success) {
-        // Update gig to completed
-        await updateDoc(doc(db, "gigs", id), { 
-          status: "completed",
-          completedAt: serverTimestamp()
-        });
-        // Create transaction record
-        await addDoc(collection(db, "transactions"), {
-          ...result,
-          createdAt: serverTimestamp()
-        });
-        // Update worker balance
-        await updateDoc(doc(db, "users", gig.workerId), {
-          balance: increment(result.workerAmount)
-        });
         toast.success(`Gig confirmed completed! Payment via ${paymentMethod.toUpperCase()} released.`);
         setTimeout(() => navigate("/dashboard"), 2000);
+      } else {
+        throw new Error(result.error || "Payment failed");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Payment error:", error);
-      toast.error("Payment failed. Please try again.");
+      toast.error(error.message || "Payment failed. Please try again.");
     } finally {
       setPaying(false);
     }
@@ -282,7 +278,7 @@ export const GigDetails = () => {
         updatedAt: serverTimestamp()
       });
     }
-    navigate("/messages");
+    navigate("/messages", { state: { chatId } });
   };
 
   if (loading) return <DashboardLayout><div className="animate-pulse space-y-4"><div className="h-12 bg-zinc-200 rounded-xl w-1/2" /><div className="h-64 bg-zinc-200 rounded-2xl" /></div></DashboardLayout>;
@@ -297,6 +293,7 @@ export const GigDetails = () => {
               <Badge variant={
                 gig.status === 'open' ? 'success' : 
                 gig.status === 'cancelled' ? 'error' : 
+                gig.status === 'expired' ? 'error' :
                 gig.status === 'review' ? 'warning' :
                 gig.status === 'completed' ? 'success' : 'warning'
               }>
@@ -442,6 +439,16 @@ export const GigDetails = () => {
             </Card>
           )}
 
+          {profile?.role === "worker" && gig.status === "expired" && (
+            <Card className="p-6 border-red-100 bg-red-50">
+              <h3 className="font-bold text-red-900 mb-2">Gig Expired</h3>
+              <p className="text-sm text-red-700 mb-6">This gig has expired and is no longer accepting applications.</p>
+              <Button variant="outline" className="w-full" onClick={() => navigate("/dashboard")}>
+                Return to Dashboard
+              </Button>
+            </Card>
+          )}
+
           {profile?.role === "worker" && gig.status === "in-progress" && gig.workerId === profile.uid && (
             <Card className="p-6 border-emerald-200 bg-emerald-50">
               <h3 className="font-bold mb-2">Gig in Progress</h3>
@@ -538,11 +545,14 @@ export const GigDetails = () => {
               </div>
 
               <Button 
-                onClick={() => setShowPaymentConfirm(true)} 
+                onClick={() => {
+                  setHasReviewed(false);
+                  setShowPaymentConfirm(true);
+                }} 
                 disabled={paying}
                 className="w-full"
               >
-                {paying ? "Processing..." : gig.status === "review" ? "Confirm & Release Payment" : `Release Payment (₱${gig.payment})`}
+                {paying ? "Processing..." : gig.status === "review" ? "Review & Release Payment" : `Release Payment (₱${gig.payment})`}
               </Button>
             </Card>
           )}
@@ -593,12 +603,28 @@ export const GigDetails = () => {
             className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl p-8"
           >
             <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 mx-auto mb-6">
-              <AlertCircle className="w-8 h-8" />
+              <Shield className="w-8 h-8" />
             </div>
-            <h2 className="text-2xl font-bold text-center mb-2">Confirm Payment?</h2>
-            <p className="text-zinc-600 text-center mb-8">
-              You are about to release <span className="font-bold text-zinc-900">₱{gig.payment}</span> to the worker via <span className="font-bold text-zinc-900 uppercase">{paymentMethod}</span>. This action cannot be reversed.
+            <h2 className="text-2xl font-bold text-center mb-2">Review & Confirm</h2>
+            <p className="text-zinc-600 text-center mb-6">
+              You are about to release <span className="font-bold text-zinc-900">₱{gig.payment}</span> to the worker via <span className="font-bold text-zinc-900 uppercase">{paymentMethod}</span>.
             </p>
+
+            <div className="bg-zinc-50 rounded-2xl p-4 mb-8 border border-zinc-100">
+              <div className="flex items-start gap-3">
+                <input 
+                  type="checkbox" 
+                  id="modal-review-confirm" 
+                  checked={hasReviewed}
+                  onChange={(e) => setHasReviewed(e.target.checked)}
+                  className="mt-1 w-4 h-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <label htmlFor="modal-review-confirm" className="text-sm text-zinc-600 leading-tight cursor-pointer">
+                  I confirm that I have reviewed the work and it meets all my requirements. I understand this payment is final and non-reversible.
+                </label>
+              </div>
+            </div>
+
             <div className="flex flex-col gap-3">
               <Button 
                 onClick={() => {
@@ -606,9 +632,9 @@ export const GigDetails = () => {
                   handlePayment();
                 }}
                 className="w-full"
-                disabled={paying}
+                disabled={paying || !hasReviewed}
               >
-                {paying ? "Processing..." : "Yes, Release Payment"}
+                {paying ? "Processing..." : "Confirm & Release Payment"}
               </Button>
               <Button 
                 variant="ghost" 

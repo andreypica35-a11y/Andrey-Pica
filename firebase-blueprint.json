@@ -2,28 +2,37 @@
   "entities": {
     "User": {
       "title": "User",
-      "description": "User profile information",
+      "description": "Public user profile information",
       "type": "object",
       "properties": {
         "uid": { "type": "string" },
-        "email": { "type": "string" },
         "displayName": { "type": "string" },
         "photoURL": { "type": "string" },
         "role": { "type": "string", "enum": ["worker", "employer", "admin"] },
         "isVerified": { "type": "boolean" },
         "verificationStatus": { "type": "string", "enum": ["unverified", "pending", "verified", "rejected"] },
         "bio": { "type": "string" },
-        "phoneNumber": { "type": "string" },
-        "address": { "type": "string" },
         "skills": { "type": "array", "items": { "type": "string" } },
         "experience": { "type": "string" },
-        "gcashNumber": { "type": "string" },
+        "rating": { "type": "number" },
+        "reviewCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "role"]
+    },
+    "UserPrivate": {
+      "title": "UserPrivate",
+      "description": "Private user information (PII, balance, settings)",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "address": { "type": "string" },
         "balance": { "type": "number" },
+        "linkedAccounts": { "type": "array", "items": { "type": "object" } },
         "idType": { "type": "string" },
         "idNumber": { "type": "string" },
         "idImageURL": { "type": "string" },
-        "rating": { "type": "number" },
-        "reviewCount": { "type": "number" },
         "notificationPreferences": {
           "type": "object",
           "properties": {
@@ -32,10 +41,9 @@
             "gigStatusUpdates": { "type": "boolean" },
             "marketing": { "type": "boolean" }
           }
-        },
-        "createdAt": { "type": "string", "format": "date-time" }
+        }
       },
-      "required": ["uid", "email", "role"]
+      "required": ["email"]
     },
     "Gig": {
       "title": "Gig",
@@ -100,12 +108,31 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["chatId", "senderId", "text"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "System notification for admins or users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["verification_request", "system", "payment"] },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "message": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "userId", "message", "read", "createdAt"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "User",
-      "description": "User profiles"
+      "description": "Public user profiles"
+    },
+    "/users_private/{userId}": {
+      "schema": "UserPrivate",
+      "description": "Private user data"
     },
     "/gigs/{gigId}": {
       "schema": "Gig",
@@ -122,6 +149,10 @@
     "/chats/{chatId}/messages/{messageId}": {
       "schema": "Message",
       "description": "Chat messages"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "System notifications"
     }
   }
 }

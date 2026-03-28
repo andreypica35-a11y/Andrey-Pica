@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
 import { auth, db, handleFirestoreError, OperationType } from "../firebase";
 import { UserProfile } from "../types";
 
@@ -20,54 +20,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        try {
-          const docRef = doc(db, "users", user.uid);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            const data = docSnap.data() as UserProfile;
-            // Check if user should be admin based on email
-            if (user.email === "andreypica35@gmail.com" && data.role !== "admin") {
-              const updatedProfile = { ...data, role: "admin" as const };
-              await updateDoc(docRef, { role: "admin" });
-              setProfile(updatedProfile);
-            } else {
-              setProfile(data);
-            }
-          } else {
-            // Auto-create profile if it doesn't exist
-            const isAdminEmail = user.email === "andreypica35@gmail.com";
-            const newProfile: UserProfile = {
-              uid: user.uid,
-              email: user.email || "",
-              displayName: user.displayName || "User",
-              photoURL: user.photoURL || "",
-              role: isAdminEmail ? "admin" : "worker",
-              isVerified: false,
-              verificationStatus: 'unverified',
-              balance: 0,
-              createdAt: serverTimestamp(),
-              rating: 5,
-              reviewCount: 0,
-              notificationPreferences: {
-                newApplications: true,
-                messages: true,
-                gigStatusUpdates: true,
-                marketing: false
-              }
-            };
-            await setDoc(docRef, newProfile);
-            setProfile(newProfile);
-          }
-        } catch (error) {
-          console.error("Error fetching/creating profile:", error);
-        } finally {
-          setUser(user);
-          setLoading(false);
-        }
-      } else {
-        setUser(null);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      if (!user) {
         setProfile(null);
         setLoading(false);
       }
@@ -75,12 +30,114 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+
+    const publicDocRef = doc(db, "users", user.uid);
+    const privateDocRef = doc(db, "users_private", user.uid);
+
+    let publicData: any = null;
+    let privateData: any = null;
+
+    const updateMergedProfile = () => {
+      if (publicData && privateData) {
+        setProfile({ ...publicData, ...privateData });
+        setLoading(false);
+      }
+    };
+
+    const unsubscribePublic = onSnapshot(publicDocRef, async (docSnap) => {
+      if (docSnap.exists()) {
+        publicData = docSnap.data();
+        if (user.email === "andreypica35@gmail.com" && publicData.role !== "admin") {
+          await updateDoc(publicDocRef, { role: "admin" });
+        } else {
+          updateMergedProfile();
+        }
+      } else {
+        // Create initial public profile
+        const isAdminEmail = user.email === "andreypica35@gmail.com";
+        const newPublicProfile = {
+          uid: user.uid,
+          displayName: user.displayName || "User",
+          photoURL: user.photoURL || "",
+          role: isAdminEmail ? "admin" : "worker",
+          isVerified: false,
+          verificationStatus: 'unverified',
+          createdAt: serverTimestamp(),
+          rating: 5,
+          reviewCount: 0,
+          skills: [],
+          experience: "",
+          bio: ""
+        };
+        await setDoc(publicDocRef, newPublicProfile);
+      }
+    }, (error) => {
+      console.error("Error in public profile snapshot:", error);
+      try {
+        handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
+      } catch (e) {
+        // Error already logged by handleFirestoreError
+      }
+      setLoading(false);
+    });
+
+    const unsubscribePrivate = onSnapshot(privateDocRef, async (docSnap) => {
+      if (docSnap.exists()) {
+        privateData = docSnap.data();
+        updateMergedProfile();
+      } else {
+        // Create initial private profile
+        const newPrivateProfile = {
+          email: user.email || "",
+          balance: 0,
+          linkedAccounts: [],
+          notificationPreferences: {
+            newApplications: true,
+            messages: true,
+            gigStatusUpdates: true,
+            marketing: false
+          }
+        };
+        await setDoc(privateDocRef, newPrivateProfile);
+      }
+    }, (error) => {
+      console.error("Error in private profile snapshot:", error);
+      try {
+        handleFirestoreError(error, OperationType.GET, `users_private/${user.uid}`);
+      } catch (e) {
+        // Error already logged by handleFirestoreError
+      }
+      setLoading(false);
+    });
+
+    return () => {
+      unsubscribePublic();
+      unsubscribePrivate();
+    };
+  }, [user]);
+
   const updateProfile = async (data: Partial<UserProfile>) => {
     if (!user) return;
     try {
-      const docRef = doc(db, "users", user.uid);
-      await updateDoc(docRef, data);
-      setProfile(prev => prev ? { ...prev, ...data } : null);
+      const publicFields = ['displayName', 'photoURL', 'role', 'isVerified', 'verificationStatus', 'bio', 'skills', 'experience', 'rating', 'reviewCount', 'idType', 'idNumber'];
+      const privateFields = ['email', 'phoneNumber', 'address', 'paymentNumber', 'linkedAccounts', 'balance', 'idImageURL', 'notificationPreferences'];
+
+      const publicUpdate: any = {};
+      const privateUpdate: any = {};
+
+      Object.keys(data).forEach(key => {
+        if (publicFields.includes(key)) publicUpdate[key] = (data as any)[key];
+        if (privateFields.includes(key)) privateUpdate[key] = (data as any)[key];
+      });
+
+      if (Object.keys(publicUpdate).length > 0) {
+        await updateDoc(doc(db, "users", user.uid), publicUpdate);
+      }
+      if (Object.keys(privateUpdate).length > 0) {
+        await updateDoc(doc(db, "users_private", user.uid), privateUpdate);
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
     }
@@ -90,9 +147,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user || !profile) return;
     const newRole = profile.role === "worker" ? "employer" : "worker";
     try {
-      const docRef = doc(db, "users", user.uid);
-      await updateDoc(docRef, { role: newRole });
-      setProfile(prev => prev ? { ...prev, role: newRole } : null);
+      await updateDoc(doc(db, "users", user.uid), { role: newRole });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
     }

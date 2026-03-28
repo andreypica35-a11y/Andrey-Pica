@@ -8,6 +8,15 @@ export interface NotificationPreferences {
   marketing: boolean;
 }
 
+export interface LinkedAccount {
+  id: string;
+  provider: "gcash" | "maya" | "bank" | "paypal";
+  accountName: string;
+  accountNumber: string;
+  isDefault: boolean;
+  createdAt: any;
+}
+
 export interface UserProfile {
   uid: string;
   email: string;
@@ -21,11 +30,13 @@ export interface UserProfile {
   address?: string;
   skills?: string[];
   experience?: string;
-  gcashNumber?: string;
+  paymentNumber?: string; // Legacy field, keeping for compatibility
+  linkedAccounts?: LinkedAccount[];
   balance?: number;
   idType?: string;
   idNumber?: string;
   idImageURL?: string;
+  verifiedAt?: any;
   rating?: number;
   reviewCount?: number;
   notificationPreferences?: NotificationPreferences;
@@ -42,7 +53,7 @@ export interface Gig {
   payment: number;
   location: string;
   duration: string;
-  status: "open" | "in-progress" | "review" | "completed" | "cancelled";
+  status: "open" | "in-progress" | "review" | "completed" | "cancelled" | "expired";
   workerId?: string;
   createdAt: any;
   completedAt?: any;
@@ -59,14 +70,17 @@ export interface Application {
 
 export interface Transaction {
   id: string;
-  gigId: string;
-  employerId: string;
-  workerId: string;
+  transactionId?: string;
+  gigId?: string;
+  employerId?: string;
+  workerId?: string;
+  userId: string;
   amount: number;
   serviceFee: number;
   workerAmount: number;
   method: string;
   status: "pending" | "completed" | "failed";
+  type?: "payment" | "deposit" | "withdrawal";
   createdAt: any;
 }
 
