@@ -322,15 +322,34 @@ export const Profile = () => {
                         </div>
                       </div>
 
-                      {editing && (
-                        <div className="mt-4 space-y-2">
-                          <label className="text-sm font-bold text-zinc-500">ID Document Image</label>
-                          <input 
-                            type="file" 
-                            accept="image/*" 
-                            onChange={handleFileChange}
-                            className="w-full text-sm text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
-                          />
+      {editing && (
+                        <div className="mt-4 p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100/50">
+                          <label className="text-sm font-bold text-emerald-900 mb-2 block">Upload ID Image</label>
+                          <p className="text-xs text-emerald-700 mb-4">
+                            Please upload a clear photo of your ID. Max file size: 500KB.
+                            Supported formats: JPG, PNG.
+                          </p>
+                          <div className="flex items-center gap-4">
+                            <input 
+                              type="file" 
+                              id="id-image-upload"
+                              accept="image/*" 
+                              onChange={handleFileChange}
+                              className="hidden"
+                            />
+                            <label 
+                              htmlFor="id-image-upload"
+                              className="cursor-pointer px-4 py-2 bg-white border border-emerald-200 rounded-xl text-sm font-medium text-emerald-700 hover:bg-emerald-50 transition-colors"
+                            >
+                              Choose File
+                            </label>
+                            {formData.idImageURL && (
+                              <span className="text-xs text-emerald-600 font-medium flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" />
+                                Image selected
+                              </span>
+                            )}
+                          </div>
                         </div>
                       )}
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, onSnapshot, updateDoc, doc, deleteDoc, getDoc, where, orderBy, limit } from "firebase/firestore";
+import { collection, query, onSnapshot, updateDoc, doc, deleteDoc, getDoc, where, orderBy, limit, serverTimestamp } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { UserProfile, Gig, Transaction } from "../types";
@@ -16,6 +16,7 @@ export const AdminPanel = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [activeTab, setActiveTab] = useState<'users' | 'gigs' | 'transactions' | 'verifications'>('users');
   const [gigToDelete, setGigToDelete] = useState<string | null>(null);
+  const [gigForReview, setGigForReview] = useState<Gig | null>(null);
   const [selectedUserForReview, setSelectedUserForReview] = useState<UserProfile | null>(null);
   const [loadingPrivate, setLoadingPrivate] = useState(false);
 
@@ -85,6 +86,14 @@ export const AdminPanel = () => {
         isVerified: status,
         verificationStatus: status ? 'verified' : verificationStatus
       });
+
+      if (status) {
+        // Also update verifiedAt in private profile if approving
+        await updateDoc(doc(db, "users_private", uid), {
+          verifiedAt: serverTimestamp()
+        }).catch(err => console.error("Failed to update private verifiedAt:", err));
+      }
+
       toast.success(`User verification ${status ? 'approved' : 'updated'}!`);
       setSelectedUserForReview(null);
     } catch (error) {
@@ -256,7 +265,15 @@ export const AdminPanel = () => {
                 <p className="text-xs text-zinc-500">Posted by {gig.employerName} • ₱{gig.payment}</p>
               </div>
               <div className="flex items-center gap-4">
-                <Badge>{gig.status}</Badge>
+                <Badge variant={
+                  gig.status === 'completed' ? 'success' : 
+                  gig.status === 'review' ? 'warning' : 'default'
+                }>
+                  {gig.status}
+                </Badge>
+                {gig.completionImageURL && (
+                  <Button size="sm" variant="outline" onClick={() => setGigForReview(gig)}>Review Work</Button>
+                )}
                 <button onClick={() => setGigToDelete(gig.id)} className="text-red-500 hover:text-red-700">
                   <Trash2 className="w-5 h-5" />
                 </button>
@@ -307,6 +324,47 @@ export const AdminPanel = () => {
                 className="w-full"
               >
                 Cancel
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {gigForReview && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl p-8"
+          >
+            <div className="flex justify-between items-start mb-6">
+              <h2 className="text-2xl font-bold">Review Completion Photo</h2>
+              <button onClick={() => setGigForReview(null)} className="text-zinc-400 hover:text-zinc-600">
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="space-y-4 mb-8">
+              <div>
+                <label className="text-xs font-bold text-zinc-400 uppercase">Gig Title</label>
+                <p className="font-bold">{gigForReview.title}</p>
+              </div>
+              <div className="aspect-video bg-zinc-100 rounded-2xl overflow-hidden flex items-center justify-center border border-zinc-200">
+                <img 
+                  src={gigForReview.completionImageURL} 
+                  className="w-full h-full object-contain" 
+                  alt="Completion Proof" 
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <Button 
+                onClick={() => setGigForReview(null)}
+                className="w-full"
+              >
+                Close Review
               </Button>
             </div>
           </motion.div>

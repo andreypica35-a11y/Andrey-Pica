@@ -3,7 +3,18 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import { initializeApp as initializeClientApp } from "firebase/app";
-import { getFirestore as getClientFirestore } from "firebase/firestore";
+import { 
+  getFirestore as getClientFirestore, 
+  collection, 
+  query, 
+  where, 
+  getDocs, 
+  writeBatch, 
+  doc, 
+  updateDoc,
+  limit,
+  Timestamp as ClientTimestamp
+} from "firebase/firestore";
 import { initializeApp as initializeAdminApp, getApps, applicationDefault } from "firebase-admin/app";
 import { getFirestore as getAdminFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
@@ -17,25 +28,50 @@ const firebaseConfig = JSON.parse(readFileSync(path.join(__dirname, "firebase-ap
 const clientApp = initializeClientApp(firebaseConfig);
 const clientDb = getClientFirestore(clientApp, firebaseConfig.firestoreDatabaseId);
 
-// Initialize Firebase Admin SDK
-// We explicitly provide the projectId and databaseId to ensure it connects to the correct Firestore instance.
-const adminApp = !getApps().length 
-  ? initializeAdminApp({
-      credential: applicationDefault(),
-      projectId: firebaseConfig.projectId,
-    })
-  : getApps()[0];
+// Initialize Firebase Admin SDK with a unique name to avoid conflicts with system-provided apps
+// We use the projectId and other info from the config
+const adminApp = getApps().find(app => app.name === "applet-admin") || initializeAdminApp({
+  projectId: firebaseConfig.projectId,
+}, "applet-admin");
 
 const adminDb = getAdminFirestore(adminApp, firebaseConfig.firestoreDatabaseId);
+adminDb.settings({ ignoreUndefinedProperties: true });
 const adminAuth = getAdminAuth(adminApp);
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
-// API routes
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
+// Request logging middleware
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api")) {
+    console.log(`[API Request] ${req.method} ${req.path}`);
+  }
+  next();
+});
+
+// Health check endpoint
+app.get("/api/health", async (req, res) => {
+  try {
+    // Test Firestore connection
+    await adminDb.collection("health_check").doc("admin").set({
+      lastCheck: FieldValue.serverTimestamp(),
+      status: "ok"
+    });
+    res.json({ 
+      status: "ok", 
+      firestore: "connected",
+      timestamp: new Date().toISOString() 
+    });
+  } catch (error: any) {
+    console.error("Health check failed:", error);
+    res.status(500).json({ 
+      status: "error", 
+      firestore: "disconnected",
+      error: error.message,
+      timestamp: new Date().toISOString() 
+    });
+  }
 });
 
 // Middleware to verify Firebase ID Token
@@ -56,48 +92,83 @@ const verifyToken = async (req: any, res: any, next: any) => {
   }
 };
 
+// Test Admin DB connectivity
+app.get("/api/test-admin-db", async (req, res) => {
+  try {
+    const gigsRef = collection(clientDb, "gigs");
+    const q = query(gigsRef, limit(1));
+    const snapshot = await getDocs(q);
+    res.json({ 
+      success: true, 
+      count: snapshot.size,
+      database: firebaseConfig.firestoreDatabaseId,
+      projectId: firebaseConfig.projectId,
+      using: "client-sdk"
+    });
+  } catch (error) {
+    console.error("[Test Client DB Error]", error);
+    res.status(500).json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : String(error),
+      database: firebaseConfig.firestoreDatabaseId,
+      projectId: firebaseConfig.projectId
+    });
+  }
+});
+
 // Cleanup expired gigs (Admin only or system)
 app.post("/api/gigs/cleanup", async (req, res) => {
   try {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    console.log(`Running cleanup for gigs older than ${sevenDaysAgo.toISOString()}`);
+    console.log(`[Cleanup] Running for gigs older than ${sevenDaysAgo.toISOString()}`);
 
-    const gigsRef = adminDb.collection("gigs");
-    const snapshot = await gigsRef.where("status", "==", "open").get();
+    const gigsRef = collection(clientDb, "gigs");
+    const q = query(gigsRef, where("status", "==", "open"));
+    
+    // Try a simple get first to check permissions and connectivity
+    console.log(`[Cleanup] Querying gigs collection in database: ${firebaseConfig.firestoreDatabaseId}`);
+    const snapshot = await getDocs(q);
 
     if (snapshot.empty) {
-      console.log("No open gigs found for cleanup.");
       return res.json({ success: true, count: 0 });
     }
 
-    console.log(`Found ${snapshot.size} open gigs. Checking for expiration...`);
-
-    const batch = adminDb.batch();
+    const batch = writeBatch(clientDb);
     let count = 0;
-    snapshot.docs.forEach((document) => {
+    
+    for (const document of snapshot.docs) {
       const data = document.data();
-      const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt instanceof Timestamp ? data.createdAt.toDate() : data.createdAt);
-      
-      const dateValue = createdAt instanceof Date ? createdAt : (createdAt ? new Date(createdAt) : null);
+      const createdAtRaw = data.createdAt;
+      let dateValue: Date | null = null;
+
+      if (createdAtRaw) {
+        if (typeof createdAtRaw.toDate === 'function') {
+          dateValue = createdAtRaw.toDate();
+        } else if (createdAtRaw instanceof ClientTimestamp) {
+          dateValue = createdAtRaw.toDate();
+        } else if (createdAtRaw instanceof Date) {
+          dateValue = createdAtRaw;
+        } else if (typeof createdAtRaw === 'string' || typeof createdAtRaw === 'number') {
+          dateValue = new Date(createdAtRaw);
+        }
+      }
 
       if (dateValue && dateValue < sevenDaysAgo) {
-        console.log(`Expiring gig: ${document.id} (Created at: ${dateValue.toISOString()})`);
-        batch.update(adminDb.doc(`gigs/${document.id}`), { status: "expired" });
+        const gigDocRef = doc(clientDb, "gigs", document.id);
+        batch.update(gigDocRef, { status: "expired" });
         count++;
       }
-    });
+    }
 
     if (count > 0) {
-      console.log(`Committing batch update for ${count} gigs...`);
       await batch.commit();
-      console.log("Batch update successful.");
-    } else {
-      console.log("No gigs met the expiration criteria.");
+      console.log(`[Cleanup] Successfully expired ${count} gigs.`);
     }
+
     res.json({ success: true, count });
-  } catch (error) {
-    console.error(`Cleanup error (Project: ${firebaseConfig.projectId}, DB: ${firebaseConfig.firestoreDatabaseId}):`, error);
+  } catch (error: any) {
+    console.error(`[Cleanup Error] Project: ${firebaseConfig.projectId}, DB: ${firebaseConfig.firestoreDatabaseId}:`, error);
     res.status(500).json({ error: "Failed to cleanup gigs", details: error.message });
   }
 });
@@ -210,6 +281,8 @@ app.post("/api/payments/topup", verifyToken, async (req: any, res) => {
   const { amount, method } = req.body;
   const userId = req.user.uid;
 
+  console.log(`[Top-up] User: ${userId}, Amount: ${amount}, Method: ${method}`);
+
   if (!amount || amount <= 0 || !method) {
     return res.status(400).json({ error: "Invalid top-up request" });
   }
@@ -220,9 +293,9 @@ app.post("/api/payments/topup", verifyToken, async (req: any, res) => {
       const txRef = adminDb.collection("transactions").doc();
 
       // 1. Update balance
-      transaction.update(privateRef, {
+      transaction.set(privateRef, {
         balance: FieldValue.increment(amount)
-      });
+      }, { merge: true });
 
       // 2. Create transaction record
       transaction.set(txRef, {
@@ -340,6 +413,16 @@ app.post("/api/verify-id", verifyToken, async (req: any, res) => {
   }
 });
 
+// Global error handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("[Global Error Handler]", err);
+  if (req.path.startsWith("/api")) {
+    res.status(500).json({ error: "Internal Server Error", details: err.message });
+  } else {
+    next(err);
+  }
+});
+
 async function startServer() {
   const PORT = 3000;
 
@@ -365,6 +448,12 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
+    
+    // API 404 handler to prevent falling through to index.html
+    app.all("/api/*", (req, res) => {
+      res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+    });
+
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });

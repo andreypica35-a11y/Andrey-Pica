@@ -121,8 +121,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateProfile = async (data: Partial<UserProfile>) => {
     if (!user) return;
     try {
-      const publicFields = ['displayName', 'photoURL', 'role', 'isVerified', 'verificationStatus', 'bio', 'skills', 'experience', 'rating', 'reviewCount', 'idType', 'idNumber'];
-      const privateFields = ['email', 'phoneNumber', 'address', 'paymentNumber', 'linkedAccounts', 'balance', 'idImageURL', 'notificationPreferences'];
+      const publicFields = ['displayName', 'photoURL', 'role', 'isVerified', 'verificationStatus', 'bio', 'skills', 'experience', 'rating', 'reviewCount'];
+      const privateFields = ['email', 'phoneNumber', 'address', 'paymentNumber', 'linkedAccounts', 'balance', 'idType', 'idNumber', 'idImageURL', 'notificationPreferences'];
 
       const publicUpdate: any = {};
       const privateUpdate: any = {};

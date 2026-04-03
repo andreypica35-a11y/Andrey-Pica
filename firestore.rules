@@ -50,6 +50,7 @@ service cloud.firestore {
     //   - duration: string
     //   - status: string (enum: ["open", "in-progress", "review", "completed", "cancelled"])
     //   - workerId: string
+    //   - completionImageURL: string
     //   - createdAt: timestamp
     //
     // Collection: gigs/{gigId}/applications
@@ -109,7 +110,7 @@ service cloud.firestore {
     
     function isAdmin() {
       return isAuthenticated() && (
-        (request.auth.token.email == "andreypica35@gmail.com" && request.auth.token.email_verified == true) ||
+        (request.auth.token.email == "andreypica35@gmail.com") ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin')
       );
     }
@@ -127,7 +128,7 @@ service cloud.firestore {
     }
 
     function isRecent(time) {
-      return time > request.time - duration.value(5, 'm') && time <= request.time;
+      return time > request.time - duration.value(10, 'm') && time <= request.time;
     }
 
     function validString(field, maxLen) {
@@ -162,17 +163,21 @@ service cloud.firestore {
              (data.get('bio', null) == null || (data.bio is string && data.bio.size() < 1000)) &&
              (data.get('skills', null) == null || (data.skills is list && data.skills.size() < 50)) &&
              (data.get('rating', null) == null || (data.rating is number && data.rating >= 0 && data.rating <= 5)) &&
-             (data.get('reviewCount', null) == null || (data.reviewCount is number && data.reviewCount >= 0));
+             (data.get('reviewCount', null) == null || (data.reviewCount is number && data.reviewCount >= 0)) &&
+             (data.get('idType', null) == null || (data.idType is string && data.idType.size() < 50)) &&
+             (data.get('idNumber', null) == null || (data.idNumber is string && data.idNumber.size() < 50)) &&
+             (data.get('photoURL', null) == null || (data.photoURL is string && data.photoURL.size() < 2000)) &&
+             (data.get('experience', null) == null || (data.experience is string && data.experience.size() < 2000));
     }
 
-    function isValidUserPrivate(data) {
+    function isValidUserPrivate(data, isCreate) {
       return (data.get('email', null) == null || (data.email is string && isValidEmail(data.email))) &&
              (data.get('phoneNumber', null) == null || (data.phoneNumber is string && data.phoneNumber.size() < 20)) &&
              (data.get('address', null) == null || (data.address is string && data.address.size() < 200)) &&
-             (data.get('balance', null) == null || (data.balance is number && data.balance >= 0)) &&
+             (data.get('balance', null) == null || (data.balance is number && data.balance >= 0 && (!isCreate || data.balance == 0 || isAdmin()))) &&
              (data.get('idType', null) == null || (data.idType is string && data.idType.size() < 50)) &&
              (data.get('idNumber', null) == null || (data.idNumber is string && data.idNumber.size() < 50)) &&
-             (data.get('idImageURL', null) == null || (data.idImageURL is string && data.idImageURL.size() < 1000000)) &&
+             (data.get('idImageURL', null) == null || (data.idImageURL is string && data.idImageURL.size() < 2000)) &&
              (data.get('paymentNumber', null) == null || (data.paymentNumber is string && data.paymentNumber.size() < 20)) &&
              (data.get('verifiedAt', null) == null || data.verifiedAt is timestamp) &&
              (data.get('notificationPreferences', null) == null || data.notificationPreferences is map);
@@ -189,7 +194,8 @@ service cloud.firestore {
              (data.get('location', null) == null || (data.location is string && data.location.size() < 200)) &&
              (data.get('category', null) == null || (data.category is string && data.category.size() < 50)) &&
              (data.get('duration', null) == null || (data.duration is string && data.duration.size() < 50)) &&
-             (data.get('workerId', null) == null || (data.workerId is string && data.workerId.size() < 128));
+             (data.get('workerId', null) == null || (data.workerId is string && data.workerId.size() < 128)) &&
+             (data.get('completionImageURL', null) == null || (data.completionImageURL is string && data.completionImageURL.size() < 2000));
     }
 
     function isValidApplication(data) {
@@ -228,7 +234,8 @@ service cloud.firestore {
              data.userId is string && data.userId.size() < 128 &&
              data.message is string && data.message.size() > 0 && data.message.size() < 1000 &&
              data.read is bool &&
-             data.createdAt is timestamp;
+             data.createdAt is timestamp &&
+             (data.get('userName', null) == null || (data.userName is string && data.userName.size() < 100));
     }
 
     // ===============================================================
@@ -260,8 +267,8 @@ service cloud.firestore {
     // User Private Data (PII, Balance, Linked Accounts)
     match /users_private/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) && isValidUserPrivate(request.resource.data);
-      allow update: if isAdmin() || (isOwner(userId) && isValidUserPrivate(request.resource.data) && fieldUnchanged('balance'));
+      allow create: if isOwner(userId) && isValidUserPrivate(request.resource.data, true);
+      allow update: if isAdmin() || (isOwner(userId) && isValidUserPrivate(request.resource.data, false) && fieldUnchanged('balance'));
     }
 
     // Gigs
@@ -314,9 +321,9 @@ service cloud.firestore {
     // Transactions
     match /transactions/{transactionId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.employerId == request.auth.uid || resource.data.workerId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && 
-                      isValidTransaction(request.resource.data) &&
-                      isRecent(request.resource.data.createdAt);
+      // Transactions should primarily be created by the server. 
+      // If client creation is needed, it must be strictly validated.
+      allow create: if isAdmin();
       allow update: if isAdmin();
     }
 
@@ -351,8 +358,7 @@ service cloud.firestore {
       allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
       allow create: if isAuthenticated() && 
                       request.resource.data.userId == request.auth.uid &&
-                      isValidNotification(request.resource.data) &&
-                      isRecent(request.resource.data.createdAt);
+                      isValidNotification(request.resource.data);
       allow update: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));
       allow delete: if isAdmin();
     }

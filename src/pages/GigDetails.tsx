@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { doc, getDoc, collection, addDoc, query, where, onSnapshot, serverTimestamp, updateDoc, setDoc, increment } from "firebase/firestore";
-import { auth, db, handleFirestoreError, OperationType } from "../firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { auth, db, storage, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { Gig, Application, UserProfile } from "../types";
 import { DashboardLayout } from "../components/Layout";
@@ -101,7 +102,9 @@ export const GigDetails = () => {
   const [selectedWorker, setSelectedWorker] = useState<UserProfile | null>(null);
   const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [hasReviewed, setHasReviewed] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const fetchWorkerProfile = async (workerId: string) => {
     try {
@@ -117,32 +120,38 @@ export const GigDetails = () => {
   useEffect(() => {
     if (!id) return;
 
-    const fetchGig = async () => {
+    const fetchGig = () => {
       try {
-        const gigDoc = await getDoc(doc(db, "gigs", id));
-        if (gigDoc.exists()) {
-          const gigData = { id: gigDoc.id, ...gigDoc.data() } as Gig;
-          setGig(gigData);
-          
-          // Fetch employer profile
-          const empDoc = await getDoc(doc(db, "users", gigData.employerId));
-          if (empDoc.exists()) {
-            setEmployer(empDoc.data() as UserProfile);
+        return onSnapshot(doc(db, "gigs", id), async (gigDoc) => {
+          if (gigDoc.exists()) {
+            const gigData = { id: gigDoc.id, ...gigDoc.data() } as Gig;
+            setGig(gigData);
+            
+            // Fetch employer profile only once or if it changes
+            if (!employer || employer.uid !== gigData.employerId) {
+              const empDoc = await getDoc(doc(db, "users", gigData.employerId));
+              if (empDoc.exists()) {
+                setEmployer(empDoc.data() as UserProfile);
+              }
+            }
           }
-        }
+          setLoading(false);
+        }, (error) => {
+          handleFirestoreError(error, OperationType.GET, `gigs/${id}`);
+        });
       } catch (error) {
         console.error("Error fetching gig:", error);
-      } finally {
         setLoading(false);
       }
     };
 
-    fetchGig();
+    const unsubscribeGig = fetchGig();
+    let unsubscribeApps: (() => void) | undefined;
 
     // Listen for applications if employer and owner
     if (profile?.role === "employer" && gig?.employerId === profile.uid) {
       const q = query(collection(db, "gigs", id, "applications"));
-      return onSnapshot(q, (snapshot) => {
+      unsubscribeApps = onSnapshot(q, (snapshot) => {
         setApplications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Application)));
       }, (error) => {
         handleFirestoreError(error, OperationType.LIST, `gigs/${id}/applications`);
@@ -150,12 +159,17 @@ export const GigDetails = () => {
     } else if (profile?.role === "worker") {
       // Check if worker has already applied
       const q = query(collection(db, "gigs", id, "applications"), where("workerId", "==", profile.uid));
-      return onSnapshot(q, (snapshot) => {
+      unsubscribeApps = onSnapshot(q, (snapshot) => {
         setHasApplied(!snapshot.empty);
       }, (error) => {
         handleFirestoreError(error, OperationType.LIST, `gigs/${id}/applications`);
       });
     }
+
+    return () => {
+      if (unsubscribeGig) unsubscribeGig();
+      if (unsubscribeApps) unsubscribeApps();
+    };
   }, [id, profile, gig?.employerId]);
 
   const handleApply = async () => {
@@ -190,13 +204,14 @@ export const GigDetails = () => {
         workerId: app.workerId
       });
       // Reject other applications
-      applications.forEach(async (otherApp) => {
-        if (otherApp.id !== app.id) {
-          await updateDoc(doc(db, "gigs", id, "applications", otherApp.id), {
+      const rejectionPromises = applications
+        .filter(otherApp => otherApp.id !== app.id)
+        .map(otherApp => 
+          updateDoc(doc(db, "gigs", id, "applications", otherApp.id), {
             status: "rejected"
-          });
-        }
-      });
+          })
+        );
+      await Promise.all(rejectionPromises);
       toast.success(`Accepted ${app.workerName}'s application!`);
     } catch (error) {
       console.error("Error accepting application:", error);
@@ -236,8 +251,14 @@ export const GigDetails = () => {
         })
       });
       
-      const result = await response.json();
-      if (result.success) {
+      let result: any;
+      try {
+        result = await response.json();
+      } catch (e) {
+        throw new Error("Server error: Failed to process payment response.");
+      }
+
+      if (response.ok && result.success) {
         toast.success(`Gig confirmed completed! Payment via ${paymentMethod.toUpperCase()} released.`);
         setTimeout(() => navigate("/dashboard"), 2000);
       } else {
@@ -253,12 +274,16 @@ export const GigDetails = () => {
 
   const handleCancel = async () => {
     if (!id || !gig) return;
+    setCancelling(true);
     try {
       await updateDoc(doc(db, "gigs", id), { status: "cancelled" });
       toast.success("Gig has been cancelled.");
+      setShowCancelConfirm(false);
       setTimeout(() => navigate("/dashboard"), 2000);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `gigs/${id}`);
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -279,6 +304,34 @@ export const GigDetails = () => {
       });
     }
     navigate("/messages", { state: { chatId } });
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !id || !gig) return;
+
+    // Check file size (500KB limit)
+    if (file.size > 500 * 1024) {
+      toast.error("File size exceeds 500KB limit.");
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const storageRef = ref(storage, `gigs/${id}/completion_${Date.now()}_${file.name}`);
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(snapshot.ref);
+
+      await updateDoc(doc(db, "gigs", id), {
+        completionImageURL: downloadURL
+      });
+      toast.success("Completion photo uploaded successfully!");
+    } catch (error: any) {
+      console.error("Error uploading image:", error);
+      toast.error(error.message || "Failed to upload image.");
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   if (loading) return <DashboardLayout><div className="animate-pulse space-y-4"><div className="h-12 bg-zinc-200 rounded-xl w-1/2" /><div className="h-64 bg-zinc-200 rounded-2xl" /></div></DashboardLayout>;
@@ -544,12 +597,53 @@ export const GigDetails = () => {
                 </div>
               </div>
 
+              <div className="mb-6 p-4 bg-white rounded-2xl border border-emerald-100">
+                <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Proof of Completion</p>
+                {gig.completionImageURL ? (
+                  <div className="space-y-3">
+                    <img 
+                      src={gig.completionImageURL} 
+                      alt="Proof of completion" 
+                      className="w-full h-40 object-cover rounded-xl border border-zinc-100"
+                      referrerPolicy="no-referrer"
+                    />
+                    <label className="block text-center cursor-pointer text-emerald-600 text-xs font-bold hover:underline">
+                      Change Photo
+                      <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} disabled={uploadingImage} />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8 border-2 border-dashed border-emerald-200 rounded-xl bg-emerald-50/50">
+                    <input 
+                      type="file" 
+                      id="completion-upload" 
+                      className="hidden" 
+                      accept="image/*" 
+                      onChange={handleImageUpload}
+                      disabled={uploadingImage}
+                    />
+                    <label 
+                      htmlFor="completion-upload" 
+                      className="cursor-pointer flex flex-col items-center gap-2"
+                    >
+                      <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600">
+                        <CheckCircle className="w-6 h-6" />
+                      </div>
+                      <span className="text-sm font-bold text-emerald-700">
+                        {uploadingImage ? "Uploading..." : "Upload Proof of Work"}
+                      </span>
+                      <span className="text-[10px] text-zinc-500">Max size: 500KB</span>
+                    </label>
+                  </div>
+                )}
+              </div>
+
               <Button 
                 onClick={() => {
                   setHasReviewed(false);
                   setShowPaymentConfirm(true);
                 }} 
-                disabled={paying}
+                disabled={paying || !gig.completionImageURL || uploadingImage}
                 className="w-full"
               >
                 {paying ? "Processing..." : gig.status === "review" ? "Review & Release Payment" : `Release Payment (₱${gig.payment})`}
@@ -575,17 +669,16 @@ export const GigDetails = () => {
             </p>
             <div className="flex flex-col gap-3">
               <Button 
-                onClick={() => {
-                  setShowCancelConfirm(false);
-                  handleCancel();
-                }}
+                onClick={handleCancel}
+                disabled={cancelling}
                 className="w-full bg-red-600 hover:bg-red-700"
               >
-                Yes, Cancel Gig
+                {cancelling ? "Cancelling..." : "Yes, Cancel Gig"}
               </Button>
               <Button 
                 variant="ghost" 
                 onClick={() => setShowCancelConfirm(false)}
+                disabled={cancelling}
                 className="w-full"
               >
                 Go Back
@@ -602,26 +695,36 @@ export const GigDetails = () => {
             animate={{ opacity: 1, scale: 1 }}
             className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl p-8"
           >
-            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 mx-auto mb-6">
-              <Shield className="w-8 h-8" />
+            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600 mx-auto mb-6">
+              <DollarSign className="w-8 h-8" />
             </div>
-            <h2 className="text-2xl font-bold text-center mb-2">Review & Confirm</h2>
+            <h2 className="text-2xl font-bold text-center mb-2">Confirm Payment Release</h2>
             <p className="text-zinc-600 text-center mb-6">
-              You are about to release <span className="font-bold text-zinc-900">₱{gig.payment}</span> to the worker via <span className="font-bold text-zinc-900 uppercase">{paymentMethod}</span>.
+              Please review the payment details below before proceeding.
             </p>
 
-            <div className="bg-zinc-50 rounded-2xl p-4 mb-8 border border-zinc-100">
-              <div className="flex items-start gap-3">
-                <input 
-                  type="checkbox" 
-                  id="modal-review-confirm" 
-                  checked={hasReviewed}
-                  onChange={(e) => setHasReviewed(e.target.checked)}
-                  className="mt-1 w-4 h-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
-                />
-                <label htmlFor="modal-review-confirm" className="text-sm text-zinc-600 leading-tight cursor-pointer">
-                  I confirm that I have reviewed the work and it meets all my requirements. I understand this payment is final and non-reversible.
-                </label>
+            <div className="bg-zinc-50 rounded-2xl p-6 mb-6 border border-zinc-100 space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-500 text-sm">Payment Amount</span>
+                <span className="text-xl font-bold text-emerald-600">₱{gig.payment}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-500 text-sm">Payment Method</span>
+                <span className="font-bold uppercase text-zinc-900">{paymentMethod}</span>
+              </div>
+              <div className="pt-4 border-t border-zinc-200">
+                <div className="flex items-start gap-3">
+                  <input 
+                    type="checkbox" 
+                    id="modal-review-confirm" 
+                    checked={hasReviewed}
+                    onChange={(e) => setHasReviewed(e.target.checked)}
+                    className="mt-1 w-4 h-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <label htmlFor="modal-review-confirm" className="text-sm text-zinc-600 leading-tight cursor-pointer">
+                    I confirm that the work has been completed satisfactorily and I authorize the release of funds. This action is final.
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -631,7 +734,7 @@ export const GigDetails = () => {
                   setShowPaymentConfirm(false);
                   handlePayment();
                 }}
-                className="w-full"
+                className="w-full h-12 text-lg"
                 disabled={paying || !hasReviewed}
               >
                 {paying ? "Processing..." : "Confirm & Release Payment"}

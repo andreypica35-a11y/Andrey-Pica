@@ -55,6 +55,7 @@ export interface Gig {
   duration: string;
   status: "open" | "in-progress" | "review" | "completed" | "cancelled" | "expired";
   workerId?: string;
+  completionImageURL?: string;
   createdAt: any;
   completedAt?: any;
 }

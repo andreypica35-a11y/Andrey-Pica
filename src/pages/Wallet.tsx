@@ -28,6 +28,7 @@ export const Wallet = () => {
     accountName: "",
     accountNumber: ""
   });
+  const [showAllTransactions, setShowAllTransactions] = useState(false);
 
   useEffect(() => {
     if (!profile) return;
@@ -298,7 +299,14 @@ export const Wallet = () => {
               <History className="w-5 h-5 text-zinc-400" />
               Recent Transactions
             </h2>
-            <Button variant="ghost" size="sm" className="text-zinc-500">View All</Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="text-zinc-500"
+              onClick={() => setShowAllTransactions(true)}
+            >
+              View All
+            </Button>
           </div>
 
           {loading ? (
@@ -482,6 +490,85 @@ export const Wallet = () => {
                 >
                   {adding ? "Linking..." : "Link Account"}
                 </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* View All Transactions Modal */}
+      <AnimatePresence>
+        {showAllTransactions && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl"
+            >
+              <div className="p-6 border-zinc-800 flex items-center justify-between border-b">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
+                    <History className="w-5 h-5 text-zinc-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Full Transaction History</h3>
+                    <p className="text-sm text-zinc-400">View all your past activities</p>
+                  </div>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setShowAllTransactions(false)}>
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+
+              <div className="p-6 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                {transactions.length === 0 ? (
+                  <div className="text-center py-12">
+                    <History className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
+                    <p className="text-zinc-500">No transactions found.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {transactions.map((tx) => (
+                      <div key={tx.id} className="flex items-center justify-between p-4 bg-zinc-800/50 border border-zinc-800 rounded-xl">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                            tx.type === 'topup' || tx.type === 'deposit' ? 'bg-emerald-500/10 text-emerald-500' : 
+                            tx.type === 'withdraw' ? 'bg-amber-500/10 text-amber-500' : 
+                            'bg-blue-500/10 text-blue-500'
+                          }`}>
+                            {tx.type === 'topup' || tx.type === 'deposit' ? <ArrowDownLeft className="w-5 h-5" /> : 
+                             tx.type === 'withdraw' ? <ArrowUpRight className="w-5 h-5" /> : 
+                             <CreditCard className="w-5 h-5" />}
+                          </div>
+                          <div>
+                            <p className="font-medium text-white capitalize">{tx.type.replace('_', ' ')}</p>
+                            <p className="text-xs text-zinc-500">
+                              {tx.createdAt?.toDate ? format(tx.createdAt.toDate(), "MMM d, yyyy • h:mm a") : "Date unavailable"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className={`font-semibold ${
+                            tx.type === 'topup' || tx.type === 'deposit' ? 'text-emerald-500' : 'text-white'
+                          }`}>
+                            {tx.type === 'topup' || tx.type === 'deposit' ? '+' : '-'} ₱{tx.amount.toLocaleString()}
+                          </p>
+                          <Badge variant="outline" className={`text-[10px] uppercase ${
+                            tx.status === 'completed' ? 'border-emerald-500/20 text-emerald-500' : 
+                            tx.status === 'pending' ? 'border-amber-500/20 text-amber-500' : 
+                            'border-red-500/20 text-red-500'
+                          }`}>
+                            {tx.status}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 border-t border-zinc-800 bg-zinc-900/50 flex justify-end">
+                <Button variant="outline" onClick={() => setShowAllTransactions(false)}>Close</Button>
               </div>
             </motion.div>
           </div>
