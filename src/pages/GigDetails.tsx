@@ -705,9 +705,30 @@ export const GigDetails = () => {
 
             <div className="bg-zinc-50 rounded-2xl p-6 mb-6 border border-zinc-100 space-y-4">
               <div className="flex justify-between items-center">
-                <span className="text-zinc-500 text-sm">Payment Amount</span>
-                <span className="text-xl font-bold text-emerald-600">₱{gig.payment}</span>
+                <span className="text-zinc-500 text-sm">Gig Payment</span>
+                <span className="font-bold text-zinc-900">₱{gig.payment.toLocaleString()}</span>
               </div>
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-500 text-sm">Service Fee (10%)</span>
+                <span className="font-bold text-zinc-900">₱{(gig.payment * 0.1).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center pt-4 border-t border-zinc-200">
+                <span className="text-zinc-900 font-bold">Total to Pay</span>
+                <span className="text-2xl font-bold text-emerald-600">₱{(gig.payment * 1.1).toLocaleString()}</span>
+              </div>
+              
+              <div className="flex flex-col items-center py-4 bg-white rounded-xl border border-emerald-100">
+                <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest mb-3">Scan QR to Pay via {paymentMethod.toUpperCase()}</p>
+                <img 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=raketero_gig_${id}_${gig.payment * 1.1}`} 
+                  alt="Payment QR" 
+                  className="w-32 h-32 mb-3"
+                />
+                <p className="text-[10px] text-zinc-400 text-center px-4">
+                  Scan this code with your {paymentMethod.toUpperCase()} app to authorize the ₱{(gig.payment * 1.1).toLocaleString()} payment.
+                </p>
+              </div>
+
               <div className="flex justify-between items-center">
                 <span className="text-zinc-500 text-sm">Payment Method</span>
                 <span className="font-bold uppercase text-zinc-900">{paymentMethod}</span>
@@ -722,7 +743,7 @@ export const GigDetails = () => {
                     className="mt-1 w-4 h-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
                   />
                   <label htmlFor="modal-review-confirm" className="text-sm text-zinc-600 leading-tight cursor-pointer">
-                    I confirm that the work has been completed satisfactorily and I authorize the release of funds. This action is final.
+                    I have scanned the QR code and authorized the payment. I confirm that the work has been completed satisfactorily.
                   </label>
                 </div>
               </div>

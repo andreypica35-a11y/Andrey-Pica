@@ -344,6 +344,9 @@ export const Wallet = () => {
                     }`}>
                       {tx.type === 'deposit' || (profile?.role === 'worker' && tx.type === 'payment') ? '+' : '-'}₱{(profile?.role === 'worker' && tx.type === 'payment' ? tx.workerAmount : tx.amount).toLocaleString()}
                     </p>
+                    {tx.serviceFee > 0 && profile?.role === 'employer' && (
+                      <p className="text-[10px] text-zinc-400">Incl. 10% fee (₱{tx.serviceFee.toLocaleString()})</p>
+                    )}
                     <div className="flex items-center justify-end gap-1 text-[10px] text-zinc-400 uppercase font-bold">
                       <Badge variant={tx.status === 'completed' ? 'success' : tx.status === 'pending' ? 'warning' : 'error'} className="text-[8px] px-1.5 py-0">{tx.status}</Badge>
                       <span className="ml-1">{tx.method}</span>
@@ -402,6 +405,22 @@ export const Wallet = () => {
                     />
                   </div>
                 </div>
+
+                {addAmount && parseFloat(addAmount) > 0 && (
+                  <div className="mb-8 p-6 bg-emerald-50 rounded-3xl border border-emerald-100 flex flex-col items-center">
+                    <p className="text-xs font-bold text-emerald-700 uppercase tracking-widest mb-4">Scan to Pay via {newAccount.provider.toUpperCase()}</p>
+                    <div className="bg-white p-4 rounded-2xl shadow-sm mb-4">
+                      <img 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=raketero_topup_${profile?.uid}_${addAmount}`} 
+                        alt="Payment QR Code"
+                        className="w-40 h-40"
+                      />
+                    </div>
+                    <p className="text-[10px] text-emerald-600 text-center">
+                      Scan this QR code with your {newAccount.provider.toUpperCase()} app to complete the payment of ₱{parseFloat(addAmount).toLocaleString()}.
+                    </p>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-3 gap-3 mb-8">
                   {[500, 1000, 2000].map(amount => (

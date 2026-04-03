@@ -204,14 +204,28 @@ app.post("/api/payments/process", verifyToken, async (req: any, res) => {
         throw new Error("Gig is not in a payable state");
       }
 
-      const serviceFee = amount * 0.05;
-      const workerAmount = amount - serviceFee;
+      const employerFee = amount * 0.10;
+      const totalCharge = amount + employerFee;
+      const workerAmount = amount;
       const transactionId = `${method.toUpperCase()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+
+      // Check employer balance
+      const employerPrivateRef = adminDb.doc(`users_private/${employerId}`);
+      const employerDoc = await transaction.get(employerPrivateRef);
+      if (!employerDoc.exists) {
+        throw new Error("Employer profile not found");
+      }
+      const employerBalance = employerDoc.data()?.balance || 0;
+      if (employerBalance < totalCharge) {
+        throw new Error(`Insufficient balance. Total charge (including 10% fee) is ₱${totalCharge.toLocaleString()}`);
+      }
 
       // 1. Update gig status
       transaction.update(gigRef, { 
         status: "completed",
-        completedAt: FieldValue.serverTimestamp()
+        completedAt: FieldValue.serverTimestamp(),
+        totalPaid: totalCharge,
+        serviceFee: employerFee
       });
 
       // 2. Create transaction record for employer
@@ -221,8 +235,9 @@ app.post("/api/payments/process", verifyToken, async (req: any, res) => {
         employerId,
         workerId,
         gigId,
-        amount,
-        serviceFee,
+        amount: totalCharge,
+        baseAmount: amount,
+        serviceFee: employerFee,
         workerAmount,
         method,
         status: "completed",
@@ -238,8 +253,8 @@ app.post("/api/payments/process", verifyToken, async (req: any, res) => {
         employerId,
         workerId,
         gigId,
-        amount,
-        serviceFee,
+        amount: workerAmount,
+        serviceFee: 0,
         workerAmount,
         method,
         status: "completed",
@@ -254,11 +269,17 @@ app.post("/api/payments/process", verifyToken, async (req: any, res) => {
         balance: FieldValue.increment(workerAmount)
       });
 
+      // 5. Deduct from employer balance
+      transaction.update(employerPrivateRef, {
+        balance: FieldValue.increment(-totalCharge)
+      });
+
       return {
         success: true,
         transactionId,
-        amount,
-        serviceFee,
+        amount: totalCharge,
+        baseAmount: amount,
+        serviceFee: employerFee,
         workerAmount,
         method,
         status: "completed",

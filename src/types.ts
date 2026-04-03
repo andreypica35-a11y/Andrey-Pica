@@ -77,6 +77,7 @@ export interface Transaction {
   workerId?: string;
   userId: string;
   amount: number;
+  baseAmount?: number;
   serviceFee: number;
   workerAmount: number;
   method: string;
