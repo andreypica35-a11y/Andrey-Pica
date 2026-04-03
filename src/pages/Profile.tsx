@@ -24,6 +24,7 @@ export const Profile = () => {
     idType: profile?.idType || "",
     idNumber: profile?.idNumber || "",
     idImageURL: profile?.idImageURL || "",
+    photoURL: profile?.photoURL || "",
     notificationPreferences: profile?.notificationPreferences || {
       newApplications: true,
       messages: true,
@@ -53,6 +54,10 @@ export const Profile = () => {
 
       if (shouldSetPending) {
         updateData.verificationStatus = 'pending';
+      }
+
+      if (formData.photoURL !== profile?.photoURL) {
+        updateData.photoURL = formData.photoURL;
       }
 
       await updateProfile(updateData);
@@ -133,6 +138,21 @@ export const Profile = () => {
     }
   };
 
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 500000) { // 500KB limit for base64
+        toast.error("Image is too large. Please select an image smaller than 500KB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData({ ...formData, photoURL: reader.result as string });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const togglePreference = (key: keyof typeof formData.notificationPreferences) => {
     if (!editing) return;
     setFormData({
@@ -156,6 +176,7 @@ export const Profile = () => {
         idType: profile.idType || "",
         idNumber: profile.idNumber || "",
         idImageURL: profile.idImageURL || "",
+        photoURL: profile.photoURL || "",
         notificationPreferences: profile.notificationPreferences || {
           newApplications: true,
           messages: true,
@@ -182,7 +203,28 @@ export const Profile = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <Card className="p-6 text-center">
-            <img src={profile?.photoURL || `https://ui-avatars.com/api/?name=${profile?.displayName}`} className="w-24 h-24 rounded-full mx-auto mb-4 border-4 border-emerald-50" alt="" />
+            <div className="relative w-24 h-24 mx-auto mb-4">
+              <img 
+                src={formData.photoURL || profile?.photoURL || `https://ui-avatars.com/api/?name=${profile?.displayName}`} 
+                className="w-full h-full rounded-full border-4 border-emerald-50 object-cover" 
+                alt="" 
+              />
+              {editing && (
+                <label 
+                  htmlFor="photo-upload" 
+                  className="absolute bottom-0 right-0 p-1.5 bg-emerald-600 rounded-full text-white cursor-pointer hover:bg-emerald-700 transition-colors shadow-lg"
+                >
+                  <CreditCard className="w-3 h-3" />
+                  <input 
+                    type="file" 
+                    id="photo-upload" 
+                    className="hidden" 
+                    accept="image/*" 
+                    onChange={handlePhotoChange} 
+                  />
+                </label>
+              )}
+            </div>
             <h2 className="text-xl font-bold flex items-center justify-center gap-1">
               {profile?.displayName}
               {profile?.isVerified && <CheckCircle className="w-5 h-5 text-emerald-500" />}

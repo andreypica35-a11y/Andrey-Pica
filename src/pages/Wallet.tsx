@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, where, onSnapshot, orderBy, limit, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, query, where, orderBy, limit, addDoc, serverTimestamp, getDocs } from "firebase/firestore";
 import { db, auth, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { Transaction, LinkedAccount } from "../types";
@@ -33,22 +33,25 @@ export const Wallet = () => {
   useEffect(() => {
     if (!profile) return;
 
-    const q = query(
-      collection(db, "transactions"),
-      where("userId", "==", profile.uid),
-      orderBy("createdAt", "desc"),
-      limit(20)
-    );
+    const fetchTransactions = async () => {
+      setLoading(true);
+      try {
+        const q = query(
+          collection(db, "transactions"),
+          where("userId", "==", profile.uid),
+          orderBy("createdAt", "desc"),
+          limit(20)
+        );
+        const snapshot = await getDocs(q);
+        setTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction)));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, "transactions");
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction)));
-      setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "transactions");
-      setLoading(false);
-    });
-
-    return unsubscribe;
+    fetchTransactions();
   }, [profile]);
 
   const handleWithdraw = async () => {

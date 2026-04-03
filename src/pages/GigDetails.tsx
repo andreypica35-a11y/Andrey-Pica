@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, getDoc, collection, addDoc, query, where, onSnapshot, serverTimestamp, updateDoc, setDoc, increment } from "firebase/firestore";
+import { doc, getDoc, collection, addDoc, query, where, serverTimestamp, updateDoc, setDoc, increment, getDocs } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, db, storage, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -120,57 +120,43 @@ export const GigDetails = () => {
   useEffect(() => {
     if (!id) return;
 
-    const fetchGig = () => {
+    const fetchData = async () => {
+      setLoading(true);
       try {
-        return onSnapshot(doc(db, "gigs", id), async (gigDoc) => {
-          if (gigDoc.exists()) {
-            const gigData = { id: gigDoc.id, ...gigDoc.data() } as Gig;
-            setGig(gigData);
-            
-            // Fetch employer profile only once or if it changes
-            if (!employer || employer.uid !== gigData.employerId) {
-              const empDoc = await getDoc(doc(db, "users", gigData.employerId));
-              if (empDoc.exists()) {
-                setEmployer(empDoc.data() as UserProfile);
-              }
-            }
+        const gigDoc = await getDoc(doc(db, "gigs", id));
+        if (gigDoc.exists()) {
+          const gigData = { id: gigDoc.id, ...gigDoc.data() } as Gig;
+          setGig(gigData);
+          
+          // Fetch employer profile
+          const empDoc = await getDoc(doc(db, "users", gigData.employerId));
+          if (empDoc.exists()) {
+            setEmployer(empDoc.data() as UserProfile);
           }
-          setLoading(false);
-        }, (error) => {
-          handleFirestoreError(error, OperationType.GET, `gigs/${id}`);
-        });
+        } else {
+          setGig(null);
+        }
+
+        // Fetch applications if employer and owner
+        if (profile?.role === "employer" && gig?.employerId === profile.uid) {
+          const q = query(collection(db, "gigs", id, "applications"));
+          const snapshot = await getDocs(q);
+          setApplications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Application)));
+        } else if (profile?.role === "worker") {
+          // Check if worker has already applied
+          const q = query(collection(db, "gigs", id, "applications"), where("workerId", "==", profile.uid));
+          const snapshot = await getDocs(q);
+          setHasApplied(!snapshot.empty);
+        }
       } catch (error) {
-        console.error("Error fetching gig:", error);
+        handleFirestoreError(error, OperationType.GET, `gigs/${id}`);
+      } finally {
         setLoading(false);
       }
     };
 
-    const unsubscribeGig = fetchGig();
-    let unsubscribeApps: (() => void) | undefined;
-
-    // Listen for applications if employer and owner
-    if (profile?.role === "employer" && gig?.employerId === profile.uid) {
-      const q = query(collection(db, "gigs", id, "applications"));
-      unsubscribeApps = onSnapshot(q, (snapshot) => {
-        setApplications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Application)));
-      }, (error) => {
-        handleFirestoreError(error, OperationType.LIST, `gigs/${id}/applications`);
-      });
-    } else if (profile?.role === "worker") {
-      // Check if worker has already applied
-      const q = query(collection(db, "gigs", id, "applications"), where("workerId", "==", profile.uid));
-      unsubscribeApps = onSnapshot(q, (snapshot) => {
-        setHasApplied(!snapshot.empty);
-      }, (error) => {
-        handleFirestoreError(error, OperationType.LIST, `gigs/${id}/applications`);
-      });
-    }
-
-    return () => {
-      if (unsubscribeGig) unsubscribeGig();
-      if (unsubscribeApps) unsubscribeApps();
-    };
-  }, [id, profile, gig?.employerId]);
+    fetchData();
+  }, [id, profile]);
 
   const handleApply = async () => {
     if (!profile || !id || !gig) return;

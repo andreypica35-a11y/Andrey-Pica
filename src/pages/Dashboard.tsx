@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
+import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { Gig } from "../types";
@@ -26,18 +26,19 @@ export const Dashboard = () => {
       ? query(collection(db, "gigs"), where("status", "==", "open"), orderBy("createdAt", "desc"))
       : query(collection(db, "gigs"), where("employerId", "==", profile.uid), orderBy("createdAt", "desc"));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const allGigs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Gig));
-      // For workers, we only want open gigs (already filtered by query)
-      // For employers, we show all their gigs, but we might want to label expired ones
-      setGigs(allGigs);
-      setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "gigs");
-      setLoading(false);
-    });
+    const fetchGigs = async () => {
+      try {
+        const snapshot = await getDocs(q);
+        const allGigs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Gig));
+        setGigs(allGigs);
+        setLoading(false);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, "gigs");
+        setLoading(false);
+      }
+    };
 
-    return unsubscribe;
+    fetchGigs();
   }, [profile]);
 
   const [showExpired, setShowExpired] = useState(false);

@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, onSnapshot, updateDoc, doc, deleteDoc, getDoc, where, orderBy, limit, serverTimestamp } from "firebase/firestore";
+import { collection, query, getDocs, onSnapshot, updateDoc, doc, deleteDoc, getDoc, where, orderBy, limit, serverTimestamp } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { UserProfile, Gig, Transaction } from "../types";
 import { DashboardLayout } from "../components/Layout";
 import { Card, Button, Badge } from "../components/UI";
-import { Shield, User, Briefcase, DollarSign, Trash2, CheckCircle, XCircle } from "lucide-react";
+import { Shield, User, Briefcase, DollarSign, Trash2, CheckCircle, XCircle, Activity } from "lucide-react";
 import { motion } from "motion/react";
+import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 
 export const AdminPanel = () => {
@@ -41,21 +42,22 @@ export const AdminPanel = () => {
   useEffect(() => {
     if (profile?.role !== "admin") return;
 
-    const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
-      setUsers(snap.docs.map(d => ({ ...d.data() } as UserProfile)));
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "users");
-    });
-    const unsubGigs = onSnapshot(collection(db, "gigs"), (snap) => {
-      setGigs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Gig)));
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "gigs");
-    });
-    const unsubTrans = onSnapshot(collection(db, "transactions"), (snap) => {
-      setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() } as Transaction)));
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "transactions");
-    });
+    const fetchData = async () => {
+      try {
+        const [usersSnap, gigsSnap, transSnap] = await Promise.all([
+          getDocs(query(collection(db, "users"), limit(50))),
+          getDocs(query(collection(db, "gigs"), limit(50))),
+          getDocs(query(collection(db, "transactions"), limit(50)))
+        ]);
+        setUsers(usersSnap.docs.map(d => ({ ...d.data() } as UserProfile)));
+        setGigs(gigsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Gig)));
+        setTransactions(transSnap.docs.map(d => ({ id: d.id, ...d.data() } as Transaction)));
+      } catch (error) {
+        console.error("Error fetching admin data:", error);
+        toast.error("Failed to load admin data.");
+      }
+    };
+    fetchData();
 
     const unsubNotifications = onSnapshot(
       query(collection(db, "notifications"), where("read", "==", false), orderBy("createdAt", "desc"), limit(10)),
@@ -77,7 +79,7 @@ export const AdminPanel = () => {
       }
     );
 
-    return () => { unsubUsers(); unsubGigs(); unsubTrans(); unsubNotifications(); };
+    return () => { unsubNotifications(); };
   }, [profile]);
 
   const handleVerifyUser = async (uid: string, status: boolean, verificationStatus: UserProfile['verificationStatus'] = 'verified') => {
@@ -126,7 +128,10 @@ export const AdminPanel = () => {
       </h1>
 
       <div className="flex flex-wrap gap-4 mb-8">
-        <Button variant={activeTab === 'users' ? 'primary' : 'outline'} onClick={() => setActiveTab('users')}>Users</Button>
+        <Button variant={activeTab === 'users' ? 'primary' : 'outline'} onClick={() => setActiveTab('users')} className="relative">
+          Users
+          <span className="ml-2 px-2 py-0.5 bg-zinc-100 text-zinc-500 rounded-md text-xs">{users.length}</span>
+        </Button>
         <Button variant={activeTab === 'verifications' ? 'primary' : 'outline'} onClick={() => setActiveTab('verifications')} className="relative">
           Verifications
           {pendingVerifications.length > 0 && (
@@ -135,34 +140,57 @@ export const AdminPanel = () => {
             </span>
           )}
         </Button>
-        <Button variant={activeTab === 'gigs' ? 'primary' : 'outline'} onClick={() => setActiveTab('gigs')}>Gigs</Button>
-        <Button variant={activeTab === 'transactions' ? 'primary' : 'outline'} onClick={() => setActiveTab('transactions')}>Transactions</Button>
+        <Button variant={activeTab === 'gigs' ? 'primary' : 'outline'} onClick={() => setActiveTab('gigs')} className="relative">
+          Gigs
+          <span className="ml-2 px-2 py-0.5 bg-zinc-100 text-zinc-500 rounded-md text-xs">{gigs.length}</span>
+        </Button>
+        <Button variant={activeTab === 'transactions' ? 'primary' : 'outline'} onClick={() => setActiveTab('transactions')} className="relative">
+          Transactions
+          <span className="ml-2 px-2 py-0.5 bg-zinc-100 text-zinc-500 rounded-md text-xs">{transactions.length}</span>
+        </Button>
       </div>
 
       {activeTab === 'users' && (
         <div className="space-y-4">
-          {users.map(user => (
-            <Card key={user.uid} className="p-6 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} className="w-12 h-12 rounded-full" alt="" />
-                <div>
-                  <p className="font-bold flex items-center gap-2">
-                    {user.displayName}
-                    {user.isVerified && <CheckCircle className="w-4 h-4 text-emerald-500" />}
-                  </p>
-                  <p className="text-xs text-zinc-500">{user.email} • <span className="capitalize">{user.role}</span></p>
+          {users.map(user => {
+            const lastActiveDate = (user as any).lastActive?.toDate?.() || null;
+            const isOnline = lastActiveDate && (new Date().getTime() - lastActiveDate.getTime() < 10 * 60 * 1000);
+            
+            return (
+              <Card key={user.uid} className="p-6 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} className="w-12 h-12 rounded-full" alt="" />
+                    {isOnline && (
+                      <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-bold flex items-center gap-2">
+                      {user.displayName}
+                      {user.isVerified && <CheckCircle className="w-4 h-4 text-emerald-500" />}
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      {user.email} • <span className="capitalize">{user.role}</span>
+                      {lastActiveDate && (
+                        <span className="ml-2 text-zinc-400 italic">
+                          • Active {formatDistanceToNow(lastActiveDate)} ago
+                        </span>
+                      )}
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {user.isVerified ? (
-                  <Button variant="outline" size="sm" onClick={() => handleVerifyUser(user.uid, false, 'unverified')} className="text-red-600">Revoke Verify</Button>
-                ) : (
-                  <Button size="sm" onClick={() => handleVerifyUser(user.uid, true)}>Verify User</Button>
-                )}
-                <Badge variant={user.isVerified ? 'success' : 'default'}>{user.isVerified ? 'Verified' : 'Unverified'}</Badge>
-              </div>
-            </Card>
-          ))}
+                <div className="flex items-center gap-2">
+                  {user.isVerified ? (
+                    <Button variant="outline" size="sm" onClick={() => handleVerifyUser(user.uid, false, 'unverified')} className="text-red-600">Revoke Verify</Button>
+                  ) : (
+                    <Button size="sm" onClick={() => handleVerifyUser(user.uid, true)}>Verify User</Button>
+                  )}
+                  <Badge variant={user.isVerified ? 'success' : 'default'}>{user.isVerified ? 'Verified' : 'Unverified'}</Badge>
+                </div>
+              </Card>
+            );
+          })}
         </div>
       )}
 

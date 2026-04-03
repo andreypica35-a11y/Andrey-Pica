@@ -34,6 +34,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user) return;
 
     const publicDocRef = doc(db, "users", user.uid);
+    
+    // Update lastActive and check admin role once on mount
+    getDoc(publicDocRef).then(docSnap => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (user.email === "andreypica35@gmail.com" && data.role !== "admin") {
+          updateDoc(publicDocRef, { role: "admin", lastActive: serverTimestamp() }).catch(err => console.error("Failed to set admin:", err));
+        } else {
+          updateDoc(publicDocRef, { lastActive: serverTimestamp() }).catch(err => console.error("Failed to update lastActive:", err));
+        }
+      }
+    }).catch(err => console.error("Failed to fetch profile for update:", err));
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const publicDocRef = doc(db, "users", user.uid);
     const privateDocRef = doc(db, "users_private", user.uid);
 
     let publicData: any = null;
@@ -46,76 +64,67 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
 
-    const unsubscribePublic = onSnapshot(publicDocRef, async (docSnap) => {
-      if (docSnap.exists()) {
-        publicData = docSnap.data();
-        if (user.email === "andreypica35@gmail.com" && publicData.role !== "admin") {
-          await updateDoc(publicDocRef, { role: "admin" });
+    const fetchProfile = async () => {
+      try {
+        const [publicSnap, privateSnap] = await Promise.all([
+          getDoc(publicDocRef),
+          getDoc(privateDocRef)
+        ]);
+
+        if (publicSnap.exists()) {
+          publicData = publicSnap.data();
         } else {
-          updateMergedProfile();
+          // Create initial public profile
+          const isAdminEmail = user.email === "andreypica35@gmail.com";
+          const newPublicProfile = {
+            uid: user.uid,
+            displayName: user.displayName || "User",
+            photoURL: user.photoURL || "",
+            role: isAdminEmail ? "admin" : "worker",
+            isVerified: false,
+            verificationStatus: 'unverified',
+            createdAt: serverTimestamp(),
+            lastActive: serverTimestamp(),
+            rating: 5,
+            reviewCount: 0,
+            skills: [],
+            experience: "",
+            bio: ""
+          };
+          await setDoc(publicDocRef, newPublicProfile);
+          publicData = newPublicProfile;
         }
-      } else {
-        // Create initial public profile
-        const isAdminEmail = user.email === "andreypica35@gmail.com";
-        const newPublicProfile = {
-          uid: user.uid,
-          displayName: user.displayName || "User",
-          photoURL: user.photoURL || "",
-          role: isAdminEmail ? "admin" : "worker",
-          isVerified: false,
-          verificationStatus: 'unverified',
-          createdAt: serverTimestamp(),
-          rating: 5,
-          reviewCount: 0,
-          skills: [],
-          experience: "",
-          bio: ""
-        };
-        await setDoc(publicDocRef, newPublicProfile);
-      }
-    }, (error) => {
-      console.error("Error in public profile snapshot:", error);
-      try {
-        handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
-      } catch (e) {
-        // Error already logged by handleFirestoreError
-      }
-      setLoading(false);
-    });
 
-    const unsubscribePrivate = onSnapshot(privateDocRef, async (docSnap) => {
-      if (docSnap.exists()) {
-        privateData = docSnap.data();
+        if (privateSnap.exists()) {
+          privateData = privateSnap.data();
+        } else {
+          // Create initial private profile
+          const newPrivateProfile = {
+            email: user.email || "",
+            balance: 0,
+            linkedAccounts: [],
+            notificationPreferences: {
+              newApplications: true,
+              messages: true,
+              gigStatusUpdates: true,
+              marketing: false
+            }
+          };
+          await setDoc(privateDocRef, newPrivateProfile);
+          privateData = newPrivateProfile;
+        }
+
         updateMergedProfile();
-      } else {
-        // Create initial private profile
-        const newPrivateProfile = {
-          email: user.email || "",
-          balance: 0,
-          linkedAccounts: [],
-          notificationPreferences: {
-            newApplications: true,
-            messages: true,
-            gigStatusUpdates: true,
-            marketing: false
-          }
-        };
-        await setDoc(privateDocRef, newPrivateProfile);
+      } catch (error) {
+        console.error("Error fetching profile:", error);
+        try {
+          handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
+        } catch (e) {}
+        setLoading(false);
       }
-    }, (error) => {
-      console.error("Error in private profile snapshot:", error);
-      try {
-        handleFirestoreError(error, OperationType.GET, `users_private/${user.uid}`);
-      } catch (e) {
-        // Error already logged by handleFirestoreError
-      }
-      setLoading(false);
-    });
-
-    return () => {
-      unsubscribePublic();
-      unsubscribePrivate();
     };
+
+    fetchProfile();
   }, [user]);
 
   const updateProfile = async (data: Partial<UserProfile>) => {

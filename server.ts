@@ -2,19 +2,6 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
-import { initializeApp as initializeClientApp } from "firebase/app";
-import { 
-  getFirestore as getClientFirestore, 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
-  writeBatch, 
-  doc, 
-  updateDoc,
-  limit,
-  Timestamp as ClientTimestamp
-} from "firebase/firestore";
 import { initializeApp as initializeAdminApp, getApps, applicationDefault } from "firebase-admin/app";
 import { getFirestore as getAdminFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
@@ -25,17 +12,27 @@ const __dirname = path.dirname(__filename);
 
 // Initialize Firebase Client SDK for legacy/other uses if needed
 const firebaseConfig = JSON.parse(readFileSync(path.join(__dirname, "firebase-applet-config.json"), "utf8"));
-const clientApp = initializeClientApp(firebaseConfig);
-const clientDb = getClientFirestore(clientApp, firebaseConfig.firestoreDatabaseId);
 
-// Initialize Firebase Admin SDK with a unique name to avoid conflicts with system-provided apps
-// We use the projectId and other info from the config
-const adminApp = getApps().find(app => app.name === "applet-admin") || initializeAdminApp({
+// Initialize Firebase Admin SDK
+const adminApp = getApps().length > 0 ? getApps()[0] : initializeAdminApp({
+  credential: applicationDefault(),
   projectId: firebaseConfig.projectId,
-}, "applet-admin");
+});
 
-const adminDb = getAdminFirestore(adminApp, firebaseConfig.firestoreDatabaseId);
+// Try to use the named database, fallback to (default) if it fails
+let adminDb;
+try {
+  adminDb = getAdminFirestore(adminApp, firebaseConfig.firestoreDatabaseId);
+} catch (e) {
+  console.warn("Failed to initialize with named database, falling back to (default)");
+  adminDb = getAdminFirestore(adminApp);
+}
 adminDb.settings({ ignoreUndefinedProperties: true });
+
+// Explicitly create a default database instance for cleanup
+const cleanupDb = getAdminFirestore(adminApp);
+cleanupDb.settings({ ignoreUndefinedProperties: true });
+
 const adminAuth = getAdminAuth(adminApp);
 
 const app = express();
@@ -57,10 +54,12 @@ app.get("/api/health", async (req, res) => {
     await adminDb.collection("health_check").doc("admin").set({
       lastCheck: FieldValue.serverTimestamp(),
       status: "ok"
-    });
+    }, { merge: true });
     res.json({ 
       status: "ok", 
       firestore: "connected",
+      projectId: firebaseConfig.projectId,
+      databaseId: firebaseConfig.firestoreDatabaseId,
       timestamp: new Date().toISOString() 
     });
   } catch (error: any) {
@@ -68,6 +67,8 @@ app.get("/api/health", async (req, res) => {
     res.status(500).json({ 
       status: "error", 
       firestore: "disconnected",
+      projectId: firebaseConfig.projectId,
+      databaseId: firebaseConfig.firestoreDatabaseId,
       error: error.message,
       timestamp: new Date().toISOString() 
     });
@@ -95,18 +96,16 @@ const verifyToken = async (req: any, res: any, next: any) => {
 // Test Admin DB connectivity
 app.get("/api/test-admin-db", async (req, res) => {
   try {
-    const gigsRef = collection(clientDb, "gigs");
-    const q = query(gigsRef, limit(1));
-    const snapshot = await getDocs(q);
+    const snapshot = await adminDb.collection("gigs").limit(1).get();
     res.json({ 
       success: true, 
       count: snapshot.size,
       database: firebaseConfig.firestoreDatabaseId,
       projectId: firebaseConfig.projectId,
-      using: "client-sdk"
+      using: "admin-sdk"
     });
   } catch (error) {
-    console.error("[Test Client DB Error]", error);
+    console.error("[Test Admin DB Error]", error);
     res.status(500).json({ 
       success: false, 
       error: error instanceof Error ? error.message : String(error),
@@ -117,24 +116,46 @@ app.get("/api/test-admin-db", async (req, res) => {
 });
 
 // Cleanup expired gigs (Admin only or system)
+let lastCleanup = 0;
 app.post("/api/gigs/cleanup", async (req, res) => {
+  // Rate limit: only run once per hour
+  if (Date.now() - lastCleanup < 3600000) {
+    return res.json({ success: true, message: "Skipped: Cleanup run too recently" });
+  }
+  
   try {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     console.log(`[Cleanup] Running for gigs older than ${sevenDaysAgo.toISOString()}`);
-
-    const gigsRef = collection(clientDb, "gigs");
-    const q = query(gigsRef, where("status", "==", "open"));
     
-    // Try a simple get first to check permissions and connectivity
-    console.log(`[Cleanup] Querying gigs collection in database: ${firebaseConfig.firestoreDatabaseId}`);
-    const snapshot = await getDocs(q);
+    const gigsRef = cleanupDb.collection("gigs");
+    
+    // Test basic access first, handle NOT_FOUND gracefully
+    try {
+      const check = await gigsRef.limit(1).get();
+      if (check.empty) {
+        console.log("[Cleanup] No gigs found, skipping.");
+        lastCleanup = Date.now();
+        return res.json({ success: true, count: 0 });
+      }
+    } catch (accessError: any) {
+      if (accessError.code === 5) { // NOT_FOUND
+        console.warn("[Cleanup] Gigs collection not found, skipping.");
+        lastCleanup = Date.now();
+        return res.json({ success: true, count: 0 });
+      }
+      console.error("[Cleanup] Basic access check failed:", accessError.message);
+      throw accessError;
+    }
+
+    const snapshot = await gigsRef.where("status", "==", "open").get();
+    lastCleanup = Date.now();
 
     if (snapshot.empty) {
       return res.json({ success: true, count: 0 });
     }
 
-    const batch = writeBatch(clientDb);
+    const batch = cleanupDb.batch();
     let count = 0;
     
     for (const document of snapshot.docs) {
@@ -145,7 +166,7 @@ app.post("/api/gigs/cleanup", async (req, res) => {
       if (createdAtRaw) {
         if (typeof createdAtRaw.toDate === 'function') {
           dateValue = createdAtRaw.toDate();
-        } else if (createdAtRaw instanceof ClientTimestamp) {
+        } else if (createdAtRaw instanceof Timestamp) {
           dateValue = createdAtRaw.toDate();
         } else if (createdAtRaw instanceof Date) {
           dateValue = createdAtRaw;
@@ -155,7 +176,7 @@ app.post("/api/gigs/cleanup", async (req, res) => {
       }
 
       if (dateValue && dateValue < sevenDaysAgo) {
-        const gigDocRef = doc(clientDb, "gigs", document.id);
+        const gigDocRef = adminDb.doc(`gigs/${document.id}`);
         batch.update(gigDocRef, { status: "expired" });
         count++;
       }
@@ -302,7 +323,7 @@ app.post("/api/payments/topup", verifyToken, async (req: any, res) => {
   const { amount, method } = req.body;
   const userId = req.user.uid;
 
-  console.log(`[Top-up] User: ${userId}, Amount: ${amount}, Method: ${method}`);
+  console.log(`[Top-up Request] User: ${userId}, Amount: ${amount}, Method: ${method}`);
 
   if (!amount || amount <= 0 || !method) {
     return res.status(400).json({ error: "Invalid top-up request" });
@@ -310,6 +331,7 @@ app.post("/api/payments/topup", verifyToken, async (req: any, res) => {
 
   try {
     const result = await adminDb.runTransaction(async (transaction) => {
+      console.log(`[Top-up Transaction] Starting for user: ${userId}`);
       const privateRef = adminDb.doc(`users_private/${userId}`);
       const txRef = adminDb.collection("transactions").doc();
 
@@ -333,10 +355,15 @@ app.post("/api/payments/topup", verifyToken, async (req: any, res) => {
       return { success: true, amount, method };
     });
 
+    console.log(`[Top-up Success] User: ${userId}, Amount: ${amount}`);
     res.json(result);
   } catch (error: any) {
-    console.error("Top-up error:", error);
-    res.status(500).json({ error: error.message || "Failed to process top-up" });
+    console.error(`[Top-up Error] User: ${userId}, Project: ${firebaseConfig.projectId}, DB: ${firebaseConfig.firestoreDatabaseId}:`, error);
+    res.status(500).json({ 
+      error: error.message || "Failed to process top-up",
+      code: error.code,
+      details: error.details
+    });
   }
 });
 
