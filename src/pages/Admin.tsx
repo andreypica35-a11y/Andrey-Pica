@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, getDocs, onSnapshot, updateDoc, doc, deleteDoc, getDoc, where, orderBy, limit, serverTimestamp } from "firebase/firestore";
+import { collection, query, getDocs, updateDoc, doc, deleteDoc, getDoc, where, orderBy, limit, serverTimestamp } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { UserProfile, Gig, Transaction } from "../types";
@@ -44,42 +44,34 @@ export const AdminPanel = () => {
 
     const fetchData = async () => {
       try {
-        const [usersSnap, gigsSnap, transSnap] = await Promise.all([
+        const [usersSnap, gigsSnap, transSnap, notificationsSnap] = await Promise.all([
           getDocs(query(collection(db, "users"), limit(50))),
           getDocs(query(collection(db, "gigs"), limit(50))),
-          getDocs(query(collection(db, "transactions"), limit(50)))
+          getDocs(query(collection(db, "transactions"), limit(50))),
+          getDocs(query(collection(db, "notifications"), where("read", "==", false), orderBy("createdAt", "desc"), limit(10)))
         ]);
         setUsers(usersSnap.docs.map(d => ({ ...d.data() } as UserProfile)));
         setGigs(gigsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Gig)));
         setTransactions(transSnap.docs.map(d => ({ id: d.id, ...d.data() } as Transaction)));
+        
+        notificationsSnap.docs.forEach((doc) => {
+          const data = doc.data();
+          if (data.type === "verification_request") {
+            toast.info(`New Verification Request: ${data.userName}`, {
+              description: data.message,
+              action: {
+                label: "View",
+                onClick: () => setActiveTab('verifications')
+              }
+            });
+          }
+        });
       } catch (error) {
         console.error("Error fetching admin data:", error);
         toast.error("Failed to load admin data.");
       }
     };
     fetchData();
-
-    const unsubNotifications = onSnapshot(
-      query(collection(db, "notifications"), where("read", "==", false), orderBy("createdAt", "desc"), limit(10)),
-      (snap) => {
-        snap.docChanges().forEach((change) => {
-          if (change.type === "added") {
-            const data = change.doc.data();
-            if (data.type === "verification_request") {
-              toast.info(`New Verification Request: ${data.userName}`, {
-                description: data.message,
-                action: {
-                  label: "View",
-                  onClick: () => setActiveTab('verifications')
-                }
-              });
-            }
-          }
-        });
-      }
-    );
-
-    return () => { unsubNotifications(); };
   }, [profile]);
 
   const handleVerifyUser = async (uid: string, status: boolean, verificationStatus: UserProfile['verificationStatus'] = 'verified') => {

@@ -1,11 +1,12 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, setPersistence, browserSessionPersistence } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, setPersistence, browserSessionPersistence, signInWithPhoneNumber, RecaptchaVerifier } from "firebase/auth";
 import { getFirestore, doc, getDoc, setDoc, collection, query, where, onSnapshot, addDoc, updateDoc, serverTimestamp, getDocFromServer } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import firebaseConfig from "../firebase-applet-config.json";
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+export { signInWithPopup, signOut, signInWithPhoneNumber, RecaptchaVerifier } from "firebase/auth";
 
 // Set persistence to session to ensure user is signed out when tab/window is closed
 setPersistence(auth, browserSessionPersistence).catch((err) => {

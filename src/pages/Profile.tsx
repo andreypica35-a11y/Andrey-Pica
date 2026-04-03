@@ -8,12 +8,14 @@ import { User, Shield, CheckCircle, Wallet, Star, Bell, CreditCard, CheckCircle2
 import { useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
 import { toast } from "sonner";
+import { PhoneAuth } from "../components/PhoneAuth";
 
 export const Profile = () => {
   const { profile, updateProfile } = useAuth();
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [verifyingPhone, setVerifyingPhone] = useState(false);
   const [formData, setFormData] = useState({
     displayName: profile?.displayName || "",
     bio: profile?.bio || "",
@@ -256,7 +258,21 @@ export const Profile = () => {
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-zinc-500">Phone Number</label>
                   {editing ? (
-                    <Input value={formData.phoneNumber} onChange={e => setFormData({...formData, phoneNumber: e.target.value})} placeholder="09123456789" />
+                    <div className="space-y-2">
+                      <Input value={formData.phoneNumber} onChange={e => setFormData({...formData, phoneNumber: e.target.value})} placeholder="09123456789" />
+                      {!verifyingPhone ? (
+                        <Button variant="outline" size="sm" onClick={() => setVerifyingPhone(true)}>Verify Phone Number</Button>
+                      ) : (
+                        <div className="p-4 border border-zinc-200 rounded-xl">
+                          <PhoneAuth onVerified={(phone) => {
+                            setFormData({...formData, phoneNumber: phone});
+                            setVerifyingPhone(false);
+                            toast.success("Phone number verified and updated!");
+                          }} />
+                          <Button variant="ghost" size="sm" className="mt-2" onClick={() => setVerifyingPhone(false)}>Cancel</Button>
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <p className="text-lg font-medium">{profile?.phoneNumber || "Not set"}</p>
                   )}
