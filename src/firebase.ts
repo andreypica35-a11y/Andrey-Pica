@@ -5,6 +5,7 @@ import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import firebaseConfig from "../firebase-applet-config.json";
 
 const app = initializeApp(firebaseConfig);
+console.log("Initializing Firebase with project ID:", firebaseConfig.projectId);
 export const auth = getAuth(app);
 export { signInWithPopup, signOut, signInWithPhoneNumber, RecaptchaVerifier } from "firebase/auth";
 
