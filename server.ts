@@ -318,6 +318,70 @@ app.post("/api/payments/process", verifyToken, async (req: any, res) => {
   }
 });
 
+// PayMongo Integration Routes
+import axios from "axios";
+const PAYMONGO_API_BASE = "https://api.paymongo.com/v1";
+const PAYMONGO_SECRET_KEY = process.env.PAYMONGO_SECRET_KEY;
+
+const paymongoAuth = {
+  headers: {
+    Authorization: `Basic ${Buffer.from(PAYMONGO_SECRET_KEY + ":").toString("base64")}`,
+    "Content-Type": "application/json",
+  },
+};
+
+// Create Payment Intent
+app.post("/api/paymongo/payment-intent", verifyToken, async (req: any, res) => {
+  try {
+    const { amount, currency, description } = req.body;
+    const response = await axios.post(`${PAYMONGO_API_BASE}/payment_intents`, {
+      data: {
+        attributes: {
+          amount: amount * 100, // PayMongo expects amount in centavos
+          currency: currency || "PHP",
+          payment_method_allowed: ["card", "gcash", "paymaya"],
+          description: description || "Payment for gig"
+        }
+      }
+    }, paymongoAuth);
+    res.json(response.data);
+  } catch (error: any) {
+    console.error("PayMongo Payment Intent Error:", error.response?.data || error.message);
+    res.status(500).json({ error: "Failed to create payment intent" });
+  }
+});
+
+// Create Payment Link
+app.post("/api/paymongo/payment-link", verifyToken, async (req: any, res) => {
+  try {
+    const { amount, description } = req.body;
+    const response = await axios.post(`${PAYMONGO_API_BASE}/links`, {
+      data: {
+        attributes: {
+          amount: amount * 100,
+          description: description || "Payment link"
+        }
+      }
+    }, paymongoAuth);
+    res.json(response.data);
+  } catch (error: any) {
+    console.error("PayMongo Payment Link Error:", error.response?.data || error.message);
+    res.status(500).json({ error: "Failed to create payment link" });
+  }
+});
+
+// Get Payment Status
+app.get("/api/paymongo/payment/:id", verifyToken, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const response = await axios.get(`${PAYMONGO_API_BASE}/payments/${id}`, paymongoAuth);
+    res.json(response.data);
+  } catch (error: any) {
+    console.error("PayMongo Payment Status Error:", error.response?.data || error.message);
+    res.status(500).json({ error: "Failed to retrieve payment status" });
+  }
+});
+
 // Secure Top-up Endpoint
 app.post("/api/payments/topup", verifyToken, async (req: any, res) => {
   const { amount, method } = req.body;
