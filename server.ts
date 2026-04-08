@@ -1,4 +1,5 @@
-import express, { Request, Response, NextFunction } from "express";
+import express from "express";
+import type { Request, Response, NextFunction } from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -498,25 +499,29 @@ app.post("/api/payments/topup", verifyToken, async (req: any, res) => {
     }
 
     console.log(`[Top-up] Attempting Client SDK fallback for user ${userId}`);
-    await clientRunTransaction(clientDb, async (transaction) => {
-      console.log(`[Top-up] Inside Client SDK transaction`);
-      const privateRef = clientDoc(clientDb, "users_private", userId);
-      transaction.set(privateRef, { balance: clientIncrement(amount) }, { merge: true });
+    try {
+      await clientRunTransaction(clientDb, async (transaction) => {
+        console.log(`[Top-up] Inside Client SDK transaction`);
+        const privateRef = clientDoc(clientDb, "users_private", userId);
+        transaction.set(privateRef, { balance: clientIncrement(amount) }, { merge: true });
 
-      const newTxRef = clientDoc(clientCollection(clientDb, "transactions"));
-      transaction.set(newTxRef, {
-        userId,
-        amount,
-        serviceFee: 0,
-        workerAmount: amount,
-        method,
-        status: "completed",
-        type: "deposit",
-        createdAt: clientServerTimestamp()
+        const newTxRef = clientDoc(clientCollection(clientDb, "transactions"));
+        transaction.set(newTxRef, {
+          userId,
+          amount,
+          serviceFee: 0,
+          workerAmount: amount,
+          method,
+          status: "completed",
+          type: "deposit",
+          createdAt: clientServerTimestamp()
+        });
       });
-    });
-
-    res.json({ success: true, amount, method });
+      res.json({ success: true, amount, method });
+    } catch (clientError: any) {
+      console.error("[Top-up Client SDK Failed]", clientError);
+      res.status(500).json({ success: false, message: clientError.message || "Failed to process top-up via Client SDK" });
+    }
   } catch (error: any) {
     console.error("[Top-up Final Error]", error);
     res.status(500).json({ success: false, message: error.message || "Failed to process top-up" });
