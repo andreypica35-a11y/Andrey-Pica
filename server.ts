@@ -22,19 +22,20 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // 1. SAFE CONFIG LOADING
-let firebaseConfig: any = {};
-try {
-  // Use process.cwd() for more reliable pathing in Vercel
-  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-  firebaseConfig = JSON.parse(readFileSync(configPath, "utf8"));
-} catch (error) {
-  console.error("CRITICAL: Could not load firebase-applet-config.json", error);
-  // Fallback to Env Vars if file is missing
-  firebaseConfig = {
-    projectId: process.env.VITE_FIREBASE_PROJECT_ID,
-    firestoreDatabaseId: process.env.VITE_FIREBASE_DATABASE_ID
-  };
+function getFirebaseConfig() {
+  try {
+    const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+    return JSON.parse(readFileSync(configPath, "utf8"));
+  } catch (error) {
+    console.error("Could not load firebase-applet-config.json, falling back to env vars", error);
+    return {
+      projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+      firestoreDatabaseId: process.env.VITE_FIREBASE_DATABASE_ID
+    };
+  }
 }
+
+const firebaseConfig = getFirebaseConfig();
 
 // Initialize Firebase Admin SDK
 let adminApp;
@@ -644,22 +645,24 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-// 2. START SERVER
+// 2. START SERVER (Only if not in production)
 async function startServer() {
   const PORT = 3000;
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
+    
+    app.listen(PORT, "0.0.0.0", () => console.log(`Server running on http://localhost:${PORT}`));
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => res.sendFile(path.join(distPath, "index.html")));
   }
-
-  app.listen(PORT, "0.0.0.0", () => console.log(`Server running on http://localhost:${PORT}`));
 }
 
-startServer();
+if (process.env.NODE_ENV !== "production") {
+  startServer();
+}
 
-// 3. EXPORT FOR VERCEL (Optional, but harmless)
+// 3. EXPORT FOR VERCEL
 export default app;
