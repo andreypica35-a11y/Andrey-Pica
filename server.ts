@@ -56,9 +56,15 @@ if (adminApp) {
 
 const adminAuth = adminApp ? getAdminAuth(adminApp) : null;
 
-// Initialize Firebase Client SDK (Fallback for Firestore on environments like Vercel without Service Account)
-const clientApp = initializeClientApp(firebaseConfig);
-const clientDb = getClientFirestore(clientApp, firebaseConfig.firestoreDatabaseId);
+// Initialize Firebase Client SDK
+let clientApp;
+let clientDb;
+try {
+  clientApp = initializeClientApp(firebaseConfig);
+  clientDb = getClientFirestore(clientApp, firebaseConfig.firestoreDatabaseId);
+} catch (error) {
+  console.error("Failed to initialize Firebase Client SDK:", error);
+}
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
