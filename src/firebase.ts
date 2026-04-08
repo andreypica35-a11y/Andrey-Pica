@@ -17,6 +17,7 @@ setPersistence(auth, browserSessionPersistence).catch((err) => {
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export async function testConnection() {
   try {

@@ -17,6 +17,7 @@ import {
   Wallet
 } from "lucide-react";
 import { cn } from "./UI";
+import { toast } from "sonner";
 
 export const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const { profile, switchRole } = useAuth();
@@ -30,10 +31,20 @@ export const DashboardLayout = ({ children }: { children: React.ReactNode }) => 
   };
 
   const handleSwitchRole = async () => {
+    if (!profile) return;
     setSwitching(true);
-    await switchRole();
-    setSwitching(false);
-    navigate("/dashboard");
+    const targetRole = profile.role === "worker" ? "Employer" : "Worker";
+    const toastId = toast.loading(`Switching to ${targetRole} mode...`);
+    
+    try {
+      await switchRole();
+      toast.success(`Switched to ${targetRole} mode`, { id: toastId });
+      navigate("/dashboard");
+    } catch (error) {
+      toast.error("Failed to switch role", { id: toastId });
+    } finally {
+      setSwitching(false);
+    }
   };
 
   const navItems = [

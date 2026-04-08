@@ -8,6 +8,7 @@ import { DashboardLayout } from "../components/Layout";
 import { Card, Button } from "../components/UI";
 import { PlusCircle, Search, MapPin, Clock, Wallet, Shield, CheckCircle } from "lucide-react";
 import { format } from "date-fns";
+import { safeFetch } from "../lib/api";
 
 export const Dashboard = () => {
   const { profile } = useAuth();
@@ -16,7 +17,7 @@ export const Dashboard = () => {
 
   useEffect(() => {
     // Cleanup expired gigs
-    fetch("/api/gigs/cleanup", { method: "POST" }).catch(err => console.error("Cleanup failed:", err));
+    safeFetch("/api/gigs/cleanup", { method: "POST" }).catch(err => console.error("Cleanup failed:", err));
   }, []);
 
   useEffect(() => {

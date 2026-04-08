@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { increment, updateDoc, doc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { motion, AnimatePresence } from "motion/react";
+import { safeFetch } from "../lib/api";
 
 export const Wallet = () => {
   const { profile, updateProfile } = useAuth();
@@ -22,6 +23,7 @@ export const Wallet = () => {
   const [showLinkAccount, setShowLinkAccount] = useState(false);
   const [addAmount, setAddAmount] = useState("");
   const [adding, setAdding] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<"manual" | "paymongo">("manual");
   
   const [newAccount, setNewAccount] = useState({
     provider: "gcash" as LinkedAccount["provider"],
@@ -72,7 +74,7 @@ export const Wallet = () => {
       const idToken = await auth.currentUser?.getIdToken();
       if (!idToken) throw new Error("Authentication required");
 
-      const response = await fetch("/api/payments/withdraw", {
+      const result = await safeFetch("/api/payments/withdraw", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -84,11 +86,10 @@ export const Wallet = () => {
         })
       });
       
-      const result = await response.json();
       if (result.success) {
         toast.success(`Withdrawal request for ₱${balance.toLocaleString()} submitted! Funds will be transferred within 24 hours.`);
       } else {
-        throw new Error(result.error || "Failed to process withdrawal");
+        throw new Error(result.message || "Failed to process withdrawal");
       }
     } catch (error: any) {
       console.error("Withdrawal error:", error);
@@ -112,7 +113,33 @@ export const Wallet = () => {
       const idToken = await auth.currentUser?.getIdToken();
       if (!idToken) throw new Error("Authentication required");
 
-      const response = await fetch("/api/payments/topup", {
+      if (paymentMethod === "paymongo") {
+        // Use PayMongo to create a payment link
+        const result = await safeFetch("/api/paymongo/payment-link", {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${idToken}`
+          },
+          body: JSON.stringify({
+            amount,
+            description: `Top-up for ${profile.email}`
+          })
+        });
+
+        if (result.success && result.data?.attributes?.checkout_url) {
+          window.open(result.data.attributes.checkout_url, "_blank");
+          toast.success("Payment link created! Please complete the payment in the new tab.");
+          setShowAddFunds(false);
+          setAddAmount("");
+        } else {
+          throw new Error(result.message || "Failed to create payment link");
+        }
+        return;
+      }
+
+      // Manual Top-up (Legacy/QR)
+      const result = await safeFetch("/api/payments/topup", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -124,13 +151,12 @@ export const Wallet = () => {
         })
       });
       
-      const result = await response.json();
       if (result.success) {
         toast.success(`Successfully added ₱${amount.toLocaleString()} to your wallet!`);
         setShowAddFunds(false);
         setAddAmount("");
       } else {
-        throw new Error(result.error || "Failed to add funds");
+        throw new Error(result.message || "Failed to add funds");
       }
     } catch (error: any) {
       console.error("Error adding funds:", error);
@@ -396,6 +422,28 @@ export const Wallet = () => {
               </div>
               <div className="p-8">
                 <div className="mb-8">
+                  <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-3">Payment Method</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button 
+                      onClick={() => setPaymentMethod("manual")}
+                      className={`py-3 rounded-xl border-2 font-bold transition-all ${
+                        paymentMethod === "manual" ? "border-emerald-500 bg-emerald-50 text-emerald-600" : "border-zinc-100 text-zinc-500"
+                      }`}
+                    >
+                      Manual QR
+                    </button>
+                    <button 
+                      onClick={() => setPaymentMethod("paymongo")}
+                      className={`py-3 rounded-xl border-2 font-bold transition-all ${
+                        paymentMethod === "paymongo" ? "border-emerald-500 bg-emerald-50 text-emerald-600" : "border-zinc-100 text-zinc-500"
+                      }`}
+                    >
+                      PayMongo
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mb-8">
                   <label className="block text-sm font-bold text-zinc-400 uppercase tracking-wider mb-3">Amount to Add (₱)</label>
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-2xl font-bold text-zinc-400">₱</span>
@@ -409,7 +457,7 @@ export const Wallet = () => {
                   </div>
                 </div>
 
-                {addAmount && parseFloat(addAmount) > 0 && (
+                {addAmount && parseFloat(addAmount) > 0 && paymentMethod === "manual" && (
                   <div className="mb-8 p-6 bg-emerald-50 rounded-3xl border border-emerald-100 flex flex-col items-center">
                     <p className="text-xs font-bold text-emerald-700 uppercase tracking-widest mb-4">Scan to Pay via {newAccount.provider.toUpperCase()}</p>
                     <div className="bg-white p-4 rounded-2xl shadow-sm mb-4">

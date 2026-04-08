@@ -11,6 +11,7 @@ import { motion } from "motion/react";
 import { MapPin, Clock, DollarSign, User, Shield, CheckCircle, AlertCircle, MessageSquare, X, Star } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { safeFetch } from "../lib/api";
 
 const WorkerProfileModal = ({ worker, onClose }: { worker: UserProfile, onClose: () => void }) => (
   <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -222,7 +223,7 @@ export const GigDetails = () => {
       const idToken = await auth.currentUser?.getIdToken();
       if (!idToken) throw new Error("Authentication required");
 
-      const response = await fetch("/api/payments/process", {
+      const result = await safeFetch("/api/payments/process", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -237,18 +238,11 @@ export const GigDetails = () => {
         })
       });
       
-      let result: any;
-      try {
-        result = await response.json();
-      } catch (e) {
-        throw new Error("Server error: Failed to process payment response.");
-      }
-
-      if (response.ok && result.success) {
+      if (result.success) {
         toast.success(`Gig confirmed completed! Payment via ${paymentMethod.toUpperCase()} released.`);
         setTimeout(() => navigate("/dashboard"), 2000);
       } else {
-        throw new Error(result.error || "Payment failed");
+        throw new Error(result.message || "Payment failed");
       }
     } catch (error: any) {
       console.error("Payment error:", error);

@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
 import { toast } from "sonner";
 import { PhoneAuth } from "../components/PhoneAuth";
+import { safeFetch } from "../lib/api";
 
 export const Profile = () => {
   const { profile, updateProfile } = useAuth();
@@ -98,7 +99,7 @@ export const Profile = () => {
       const idToken = await auth.currentUser?.getIdToken();
       if (!idToken) throw new Error("Authentication required");
 
-      const response = await fetch("/api/verify-id", {
+      const result = await safeFetch("/api/verify-id", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -111,11 +112,10 @@ export const Profile = () => {
         })
       });
 
-      const result = await response.json();
       if (result.success) {
         toast.success('ID verified successfully! You are now a verified worker.');
       } else {
-        throw new Error(result.error || "Verification failed");
+        throw new Error(result.message || "Verification failed");
       }
     } catch (error: any) {
       console.error("Verification error:", error);

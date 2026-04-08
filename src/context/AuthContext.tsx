@@ -31,36 +31,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setProfile(null);
+      setLoading(false);
+      return;
+    }
 
-    const fetchAndInitializeProfile = async () => {
-      setLoading(true);
-      const publicDocRef = doc(db, "users", user.uid);
-      const privateDocRef = doc(db, "users_private", user.uid);
+    setLoading(true);
+    const publicDocRef = doc(db, "users", user.uid);
+    const privateDocRef = doc(db, "users_private", user.uid);
 
+    // Initialize profiles if they don't exist
+    const initialize = async () => {
       try {
-        // Fetch both docs in parallel
         const [publicSnap, privateSnap] = await Promise.all([
           getDoc(publicDocRef),
           getDoc(privateDocRef)
         ]);
 
-        let publicData: any = null;
-        let privateData: any = null;
-
-        // Handle Public Profile
-        if (publicSnap.exists()) {
-          publicData = publicSnap.data();
-          // Update lastActive and check admin role
-          const updateFields: any = { lastActive: serverTimestamp() };
-          if (user.email === "andreypica35@gmail.com" && publicData.role !== "admin") {
-            updateFields.role = "admin";
-          }
-          await updateDoc(publicDocRef, updateFields).catch(err => console.error("Failed to update public profile:", err));
-        } else {
-          // Create initial public profile
+        if (!publicSnap.exists()) {
           const isAdminEmail = user.email === "andreypica35@gmail.com";
-          publicData = {
+          await setDoc(publicDocRef, {
             uid: user.uid,
             displayName: user.displayName || "User",
             photoURL: user.photoURL || "",
@@ -74,16 +65,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             skills: [],
             experience: "",
             bio: ""
-          };
-          await setDoc(publicDocRef, publicData);
+          });
+        } else {
+          // Update lastActive
+          await updateDoc(publicDocRef, { lastActive: serverTimestamp() }).catch(() => {});
         }
 
-        // Handle Private Profile
-        if (privateSnap.exists()) {
-          privateData = privateSnap.data();
-        } else {
-          // Create initial private profile
-          privateData = {
+        if (!privateSnap.exists()) {
+          await setDoc(privateDocRef, {
             email: user.email || "",
             balance: 0,
             linkedAccounts: [],
@@ -93,22 +82,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               gigStatusUpdates: true,
               marketing: false
             }
-          };
-          await setDoc(privateDocRef, privateData);
+          });
         }
-
-        setProfile({ ...publicData, ...privateData });
       } catch (error) {
         console.error("Error initializing profile:", error);
-        try {
-          handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
-        } catch (e) {}
-      } finally {
-        setLoading(false);
       }
     };
 
-    fetchAndInitializeProfile();
+    initialize();
+
+    // Set up real-time listeners
+    let publicData: any = null;
+    let privateData: any = null;
+
+    const unsubPublic = onSnapshot(publicDocRef, (doc) => {
+      if (doc.exists()) {
+        publicData = doc.data();
+        if (privateData) {
+          setProfile({ ...publicData, ...privateData });
+          setLoading(false);
+        } else {
+          setProfile(prev => prev ? { ...prev, ...publicData } : null);
+        }
+      }
+    }, (error) => {
+      console.error("Public profile listener error:", error);
+      setLoading(false);
+    });
+
+    const unsubPrivate = onSnapshot(privateDocRef, (doc) => {
+      if (doc.exists()) {
+        privateData = doc.data();
+        if (publicData) {
+          setProfile({ ...publicData, ...privateData });
+          setLoading(false);
+        } else {
+          setProfile(prev => prev ? { ...prev, ...privateData } : null);
+        }
+      }
+    }, (error) => {
+      console.error("Private profile listener error:", error);
+      setLoading(false);
+    });
+
+    return () => {
+      unsubPublic();
+      unsubPrivate();
+    };
   }, [user]);
 
   const updateProfile = async (data: Partial<UserProfile>) => {
@@ -137,11 +157,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const switchRole = async () => {
-    if (!user || !profile) return;
+    if (!user || !profile) {
+      console.warn("Cannot switch role: No user or profile found");
+      return;
+    }
+    
+    // Don't switch if admin (unless they want to)
+    if (profile.role === "admin") {
+      console.log("Admin role detected, skipping switch or handle specifically");
+      return;
+    }
+
     const newRole = profile.role === "worker" ? "employer" : "worker";
+    console.log(`Switching role from ${profile.role} to ${newRole} for user ${user.uid}`);
+    
     try {
       await updateDoc(doc(db, "users", user.uid), { role: newRole });
+      console.log("Role updated successfully in Firestore");
     } catch (error) {
+      console.error("Error switching role:", error);
       handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
     }
   };
