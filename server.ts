@@ -21,8 +21,20 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize Firebase Client SDK for legacy/other uses if needed
-const firebaseConfig = JSON.parse(readFileSync(path.join(__dirname, "firebase-applet-config.json"), "utf8"));
+// 1. SAFE CONFIG LOADING
+let firebaseConfig: any = {};
+try {
+  // Use process.cwd() for more reliable pathing in Vercel
+  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+  firebaseConfig = JSON.parse(readFileSync(configPath, "utf8"));
+} catch (error) {
+  console.error("CRITICAL: Could not load firebase-applet-config.json", error);
+  // Fallback to Env Vars if file is missing
+  firebaseConfig = {
+    projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+    firestoreDatabaseId: process.env.VITE_FIREBASE_DATABASE_ID
+  };
+}
 
 // Initialize Firebase Admin SDK
 let adminApp;
@@ -632,8 +644,7 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-export default app;
-
+// 2. PREVENT app.listen IN PRODUCTION (Vercel)
 async function startServer() {
   const PORT = 3000;
   if (process.env.NODE_ENV !== "production") {
@@ -648,4 +659,9 @@ async function startServer() {
   app.listen(PORT, "0.0.0.0", () => console.log(`Server running on http://localhost:${PORT}`));
 }
 
-startServer();
+if (process.env.NODE_ENV !== "production") {
+  startServer();
+}
+
+// 3. EXPORT FOR VERCEL
+export default app;
