@@ -644,7 +644,7 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-// 2. PREVENT app.listen IN PRODUCTION (Vercel)
+// 2. START SERVER
 async function startServer() {
   const PORT = 3000;
   if (process.env.NODE_ENV !== "production") {
@@ -659,9 +659,7 @@ async function startServer() {
   app.listen(PORT, "0.0.0.0", () => console.log(`Server running on http://localhost:${PORT}`));
 }
 
-if (process.env.NODE_ENV !== "production") {
-  startServer();
-}
+startServer();
 
-// 3. EXPORT FOR VERCEL
+// 3. EXPORT FOR VERCEL (Optional, but harmless)
 export default app;
