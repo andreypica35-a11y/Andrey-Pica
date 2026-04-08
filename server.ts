@@ -493,6 +493,7 @@ app.post("/api/payments/topup", verifyToken, async (req: any, res) => {
 
     console.log(`[Top-up] Attempting Client SDK fallback for user ${userId}`);
     await clientRunTransaction(clientDb, async (transaction) => {
+      console.log(`[Top-up] Inside Client SDK transaction`);
       const privateRef = clientDoc(clientDb, "users_private", userId);
       transaction.set(privateRef, { balance: clientIncrement(amount) }, { merge: true });
 
